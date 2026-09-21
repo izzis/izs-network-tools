@@ -7,6 +7,10 @@ output console below.
 
 Package: `id.web.izs.nettools`
 
+<p align="center">
+  <img src="docs/screenshots/screenshot-home.jpeg" width="300" alt="izs NetTools home screen">
+</p>
+
 ## Features
 
 | Tool      | What it does |
