@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.ui.AppTheme
+import id.web.izs.nettools.ui.AboutScreen
 import id.web.izs.nettools.ui.ColorsScreen
 import id.web.izs.nettools.ui.HomeScreen
 import id.web.izs.nettools.ui.ManageHostsScreen
@@ -70,8 +71,10 @@ class MainActivity : ComponentActivity() {
                     "settings" -> SettingsScreen(
                         vm,
                         onBack = { screen = "home" },
-                        onOpenColors = { screen = "colors" }
+                        onOpenColors = { screen = "colors" },
+                        onOpenAbout = { screen = "about" }
                     )
+                    "about" -> AboutScreen(onBack = { screen = "settings" })
                     "colors" -> ColorsScreen(vm, onBack = { screen = "settings" })
                     "hosts" -> ManageHostsScreen(vm, onBack = { screen = "home" }) { host ->
                         vm.pickTarget(host)
