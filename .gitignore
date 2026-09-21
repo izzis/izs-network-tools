@@ -1,0 +1,20 @@
+# Gradle / build outputs
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+
+# Local SDK + signing (machine-specific, never commit)
+local.properties
+keystore.properties
+release.keystore
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+.kotlin_module
+.DS_Store

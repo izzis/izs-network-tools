@@ -1,0 +1,265 @@
+package id.web.izs.nettools.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import id.web.izs.nettools.core.CertChecker
+import id.web.izs.nettools.core.DnsRunner
+import id.web.izs.nettools.core.HttpHeadersFetcher
+import id.web.izs.nettools.core.IpScan
+import id.web.izs.nettools.core.IpInfoClient
+import id.web.izs.nettools.core.PingRunner
+import id.web.izs.nettools.core.PortChecker
+import id.web.izs.nettools.core.TargetParser
+import id.web.izs.nettools.core.TraceRunner
+import id.web.izs.nettools.core.WhoisRdapClient
+import id.web.izs.nettools.data.SettingsRepository
+import id.web.izs.nettools.model.AppSettings
+import id.web.izs.nettools.model.SavedHost
+import id.web.izs.nettools.model.SavedSort
+import id.web.izs.nettools.model.Tool
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class HomeUiState(
+    val target: String = "",
+    val tool: Tool = Tool.PING,
+    val digType: String = "A",
+    val lines: List<String> = emptyList(),
+    val running: Boolean = false,
+    val progress: String? = null,
+    val startedAt: Long = 0L,
+    val message: String? = null,
+    val settings: AppSettings = AppSettings(),
+    val settingsLoaded: Boolean = false,
+    val saved: List<SavedHost> = emptyList(),
+    val recent: List<String> = emptyList(),
+    val dropExpanded: Boolean = false,
+    val isTargetSaved: Boolean = false
+)
+
+class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val repo = SettingsRepository(app)
+    private val _state = MutableStateFlow(HomeUiState())
+    val state: StateFlow<HomeUiState> = _state.asStateFlow()
+    private var job: Job? = null
+
+    init {
+        viewModelScope.launch { repo.settings.collect { s ->
+            _state.update { it.copy(settings = s, settingsLoaded = true) }
+            // Shrink a legacy long recent list to the current limit.
+            repo.trimRecent(s.maxRecent)
+        } }
+        viewModelScope.launch { repo.savedHosts.collect { l -> _state.update { it.copy(saved = l) } } }
+        viewModelScope.launch { repo.recentHosts.collect { l -> _state.update { it.copy(recent = l) } } }
+    }
+
+    fun setTarget(v: String) {
+        _state.update { it.copy(target = v, message = null) }
+        viewModelScope.launch {
+            _state.update { it.copy(isTargetSaved = repo.isSaved(v)) }
+        }
+    }
+
+    fun setTool(t: Tool) {
+        _state.update { it.copy(tool = t) }
+        // IP Scan: autofill the target bar with your own /24 network.
+        if (t == Tool.SWEEP && _state.value.target.isBlank()) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                IpScan.ownNetwork()?.let { own ->
+                    _state.update { s -> if (s.target.isBlank()) s.copy(target = "${own.base24}.0/24") else s }
+                }
+            }
+        }
+    }
+
+    /** Tap a tool = run it immediately (except IP Scan: too heavy to trigger
+     *  by accident, it needs an explicit Run press). Tapping again re-runs. */
+    fun selectAndRun(t: Tool) {
+        if (_state.value.running) return
+        setTool(t)
+        if (t == Tool.SWEEP) return
+        run()
+    }
+    fun setDigType(t: String) {
+        _state.update { it.copy(digType = t) }
+        // Switching record type re-runs Dig immediately, no need to tap again.
+        if (_state.value.tool == Tool.DIG) {
+            stop()
+            run()
+        }
+    }
+    fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
+    fun clearMessage() = _state.update { it.copy(message = null) }
+
+    fun pickTarget(host: String) {
+        setTarget(host)
+        setDrop(false)
+        viewModelScope.launch {
+            repo.touchSaved(host)
+            if (_state.value.settings.autoRunOnPick) run()
+        }
+    }
+
+    fun toggleSave(label: String = "") {
+        val host = _state.value.target.trim()
+        if (host.isEmpty()) {
+            _state.update { it.copy(message = "Enter a target first before saving") }
+            return
+        }
+        viewModelScope.launch {
+            if (repo.isSaved(host)) {
+                _state.value.saved.firstOrNull { it.host.equals(host, ignoreCase = true) }?.let {
+                    repo.deleteSaved(it.id)
+                }
+                _state.update { it.copy(isTargetSaved = false, message = "Removed from saved") }
+            } else {
+                val ok = repo.addSaved(label, host)
+                _state.update {
+                    it.copy(
+                        isTargetSaved = ok,
+                        message = if (ok) "Saved — just pick it next time" else "Already in saved"
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearOutput() = _state.update { it.copy(lines = emptyList()) }
+
+    fun bumpFont(deltaSp: Float) {
+        val next = (_state.value.settings.outputFontSp + deltaSp).coerceIn(9f, 22f)
+        viewModelScope.launch { repo.saveSettings(_state.value.settings.copy(outputFontSp = next)) }
+    }
+
+    fun deleteSaved(id: Long) {
+        viewModelScope.launch { repo.deleteSaved(id) }
+    }
+
+    fun setSavedSort(mode: SavedSort) {
+        val cur = _state.value.settings
+        if (cur.savedSort == mode.name) return
+        viewModelScope.launch { repo.saveSettings(cur.copy(savedSort = mode.name)) }
+    }
+
+    fun setCustomColor(role: String, hex: String) {
+        viewModelScope.launch {
+            val updated = _state.value.settings.customColors + (role to hex)
+            repo.saveCustomColors(updated)
+        }
+    }
+
+    fun clearCustomColor(role: String) {
+        viewModelScope.launch {
+            repo.saveCustomColors(_state.value.settings.customColors - role)
+        }
+    }
+
+    fun resetCustomColors() {
+        viewModelScope.launch {
+            repo.saveCustomColors(emptyMap())
+            repo.saveSchemeName("")
+        }
+    }
+
+    /** Save the current working colors under [name]. Same name = overwrite, new name = new scheme. */
+    fun saveScheme(name: String) {
+        val n = name.trim()
+        if (n.isEmpty()) return
+        viewModelScope.launch {
+            val s = _state.value.settings
+            repo.saveColorSchemes(s.colorSchemes + (n to s.customColors))
+            repo.saveSchemeName(n)
+        }
+    }
+
+    fun applyScheme(name: String) {
+        val colors = _state.value.settings.colorSchemes[name] ?: return
+        viewModelScope.launch {
+            repo.saveCustomColors(colors)
+            repo.saveSchemeName(name)
+        }
+    }
+
+    fun deleteScheme(name: String) {
+        viewModelScope.launch {
+            repo.saveColorSchemes(_state.value.settings.colorSchemes - name)
+            if (_state.value.settings.schemeName == name) repo.saveSchemeName("")
+        }
+    }
+
+    fun stop() {
+        job?.cancel()
+        job = null
+        _state.update { it.copy(running = false, progress = null) }
+    }
+
+    fun run() {
+        val st = _state.value
+        val rawTarget = st.target.trim()
+        // My IP and LAN sweep work without a target.
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && rawTarget.isEmpty()) {
+            _state.update { it.copy(message = "Enter a target first (IP / host)") }
+            return
+        }
+        if (st.running) return
+        val parsed = TargetParser.parse(rawTarget)
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && parsed.host.isEmpty()) {
+            _state.update { it.copy(message = "Invalid target") }
+            return
+        }
+        job?.cancel()
+        val s = st.settings
+        val backend = when (st.tool) {
+            Tool.PING -> "system ping " + (if (s.pingCount > 0) "x${s.pingCount}" else "nonstop")
+            Tool.DIG -> "dnsjava via ${s.dnsServer}"
+            Tool.TRACE -> "system traceroute if present, else TTL-ping"
+            Tool.WHOIS -> "RDAP + WHOIS port 43"
+            Tool.IPINFO -> s.ipLookupBase
+            Tool.MYIP -> s.myIpBase
+            Tool.PORTS -> "TCP connect"
+            Tool.CERT -> "TLS handshake"
+            Tool.HEADERS -> "HTTP GET"
+            Tool.SWEEP -> "ping sweep"
+        }
+        val headerTarget = if (st.tool == Tool.SWEEP) rawTarget.ifEmpty { "auto /24" }
+            else parsed.host.ifEmpty { "this device" }
+        val header = "== ${st.tool.title} $headerTarget [via $backend] " +
+            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
+        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
+        if (st.tool != Tool.SWEEP && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
+
+        val onProgress: (String) -> Unit = { msg -> _state.update { it.copy(progress = msg) } }
+        val flow = when (st.tool) {
+            Tool.PING -> PingRunner.ping(parsed.host, s.pingCount)
+            Tool.DIG -> DnsRunner.lookup(parsed.host, st.digType, s.dnsServer, s.timeoutMs)
+            Tool.TRACE -> TraceRunner.traceroute(parsed.host, s.maxHops, onProgress)
+            Tool.WHOIS -> WhoisRdapClient.lookup(parsed.host, s.rdapBase, s.whoisServer, s.whoisPort, s.timeoutMs)
+            Tool.IPINFO -> IpInfoClient.lookup(parsed.host, s.ipLookupBase)
+            Tool.MYIP -> IpInfoClient.lookup("", s.myIpBase)
+            Tool.PORTS -> PortChecker.check(parsed.host, parsed.port, s.timeoutMs, PortChecker.parsePorts(s.portList))
+            Tool.CERT -> CertChecker.fetch(parsed.host, parsed.port ?: 443, s.timeoutMs)
+            Tool.HEADERS -> HttpHeadersFetcher.fetch(rawTarget, s.timeoutMs)
+            Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline)
+        }
+        job = viewModelScope.launch {
+            flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
+                .collect { line ->
+                    _state.update { it.copy(lines = it.lines + line) }
+                }
+            _state.update { it.copy(running = false, progress = null) }
+        }
+    }
+
+    fun outputText(): String = _state.value.lines.joinToString("\n")
+
+}

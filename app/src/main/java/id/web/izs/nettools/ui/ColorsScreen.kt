@@ -1,0 +1,338 @@
+package id.web.izs.nettools.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+private val CuratedColors = listOf(
+    "#000000", "#0D1117", "#1A1A1A", "#202327", "#21262D", "#2B2D31",
+    "#383A40", "#424242", "#757575", "#BDBDBD", "#E0E0E0", "#FFFFFF",
+    "#B71C1C", "#E53935", "#EF9A9A", "#E65100", "#FB8C00", "#FFCC80",
+    "#F9A825", "#FDD835", "#FFF59D", "#33691E", "#66BB6A", "#A5D6A7",
+    "#00695C", "#4DB6AC", "#01579B", "#64B5F6", "#90CAF9",
+    "#4527A0", "#9575CD", "#AD1457", "#F48FB1", "#5D4037", "#BCAAA4"
+)
+
+private fun roleColor(
+    role: String,
+    theme: String,
+    scheme: androidx.compose.material3.ColorScheme,
+    overrides: Map<String, String>
+): Color = when (role) {
+    "background" -> scheme.background
+    "surface" -> scheme.surface
+    "surfaceContainer" -> scheme.surfaceContainer
+    "primary" -> scheme.primary
+    "onPrimary" -> scheme.onPrimary
+    "primaryContainer" -> scheme.primaryContainer
+    "onPrimaryContainer" -> scheme.onPrimaryContainer
+    "terminal" -> overrides["terminal"]?.let { hexToColor(it) } ?: defaultTerminalBg(theme, scheme)
+    else -> scheme.surface
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+    val settings = state.settings
+    val overrides = settings.customColors
+    val scheme = remember(settings.theme, overrides) {
+        baseScheme(settings.theme).withOverrides(overrides)
+    }
+    var editingRole by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var name by remember(settings.schemeName) { mutableStateOf(settings.schemeName) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Custom colors") },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        focusManager.clearFocus()
+                        onBack()
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { pad ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(pad)
+                .padding(12.dp)
+                .verticalScroll(rememberScrollState())
+                .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Overrides apply on top of the current base theme. Changes apply live.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // Live preview strip in the effective colors.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f).height(64.dp)
+                        .clip(RoundedCornerShape(12.dp)).background(scheme.background),
+                    contentAlignment = Alignment.Center
+                ) { Text("Aa", color = scheme.primary, fontWeight = FontWeight.Bold) }
+                Box(
+                    modifier = Modifier.weight(1f).height(64.dp)
+                        .clip(RoundedCornerShape(12.dp)).background(scheme.surfaceContainer),
+                    contentAlignment = Alignment.Center
+                ) { Text("Aa", color = scheme.onSurface, fontWeight = FontWeight.Bold) }
+                Box(
+                    modifier = Modifier.weight(1f).height(64.dp)
+                        .clip(RoundedCornerShape(12.dp)).background(scheme.primary),
+                    contentAlignment = Alignment.Center
+                ) { Text("Aa", color = scheme.onPrimary, fontWeight = FontWeight.Bold) }
+            }
+            // Named scheme: edit the name, Save stores it. Same name = overwrite, new name = new scheme.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Scheme name") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        focusManager.clearFocus()
+                        vm.saveScheme(name)
+                    }),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = {
+                        focusManager.clearFocus()
+                        vm.saveScheme(name)
+                    },
+                    enabled = name.isNotBlank()
+                ) {
+                    Icon(Icons.Filled.Save, contentDescription = "Save color scheme")
+                }
+            }
+            if (settings.colorSchemes.isNotEmpty()) {
+                Text(
+                    "Saved schemes (${settings.colorSchemes.size}) — tap to apply",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                settings.colorSchemes.keys.sorted().forEach { saved ->
+                    val active = saved == settings.schemeName
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { vm.applyScheme(saved) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            saved,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (active) FontWeight.Bold else null,
+                            color = if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { vm.deleteScheme(saved) }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "Delete $saved",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            Text("Sections (${CustomColorRoles.size})", style = MaterialTheme.typography.titleMedium)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                CustomColorRoles.forEach { (key, label) ->
+                    val fill = roleColor(key, settings.theme, scheme, overrides)
+                    val custom = overrides.containsKey(key)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { editingRole = key to label }
+                    ) {
+                        Box(
+                            modifier = Modifier.size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(fill)
+                                .then(
+                                    if (custom) Modifier.border(
+                                        2.dp,
+                                        MaterialTheme.colorScheme.primary,
+                                        RoundedCornerShape(12.dp)
+                                    ) else Modifier
+                                )
+                        )
+                        Text(
+                            label.split(" ").first(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+            Text(
+                "Tap a section to change its color. Bordered sections are customized.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                onClick = { vm.resetCustomColors() },
+                enabled = overrides.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Reset all") }
+        }
+    }
+
+    editingRole?.let { (key, label) ->
+        val customized = overrides.containsKey(key)
+        AlertDialog(
+            onDismissRequest = { editingRole = null },
+            title = { Text(label) },
+            text = {
+                ColorPickerContent(
+                    currentHex = overrides[key] ?: colorToHex(roleColor(key, settings.theme, scheme, overrides)),
+                    onPick = { vm.setCustomColor(key, it) }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { editingRole = null }) { Text("OK") }
+            },
+            dismissButton = if (customized) {
+                {
+                    TextButton(onClick = {
+                        vm.clearCustomColor(key)
+                        editingRole = null
+                    }) { Text("Default") }
+                }
+            } else null
+        )
+    }
+}
+
+/** Preset swatch grid (tap = apply, dialog stays open) + manual hex field (live apply). */
+@Composable
+private fun ColorPickerContent(
+    currentHex: String,
+    onPick: (String) -> Unit
+) {
+    var hex by remember(currentHex) { mutableStateOf(currentHex) }
+    var hexError by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            val preview = hexToColor(hex)
+            Box(
+                modifier = Modifier.size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(preview ?: MaterialTheme.colorScheme.surfaceVariant)
+            )
+            Text(
+                if (hexError) "Invalid hex" else hex.uppercase(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            CuratedColors.forEach { c ->
+                val col = hexToColor(c) ?: return@forEach
+                Box(
+                    modifier = Modifier.size(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(col)
+                        .clickable {
+                            val norm = colorToHex(col)
+                            hex = norm
+                            hexError = false
+                            onPick(norm)
+                        }
+                )
+            }
+        }
+        OutlinedTextField(
+            value = hex,
+            onValueChange = { t ->
+                hex = t
+                val norm = normalizeHex(t)
+                hexError = norm == null
+                if (norm != null) onPick(norm)
+            },
+            label = { Text("Hex color (#rrggbb)") },
+            singleLine = true,
+            isError = hexError,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { hexToColor(hex)?.let { onPick(colorToHex(it)) } }),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}

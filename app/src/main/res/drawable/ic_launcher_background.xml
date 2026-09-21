@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher background: same blue gradient as the web card tile (135deg). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="#01579B"
+        android:endColor="#00ACC1"
+        android:type="linear" />
+</shape>

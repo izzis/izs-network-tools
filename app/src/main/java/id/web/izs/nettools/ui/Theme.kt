@@ -1,0 +1,130 @@
+package id.web.izs.nettools.ui
+
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+import kotlin.math.roundToInt
+
+/** App theme (colorscheme) options. Stored as a plain string in settings. */
+object AppTheme {
+    const val AMOLED = "amoled"
+    const val DARK = "dark"
+    const val SAND = "sand"
+    const val LIGHT = "light"
+
+    val presets = listOf(
+        "AMOLED (pure black)" to AMOLED,
+        "Dark" to DARK,
+        "Sand (warm light)" to SAND,
+        "Light gray" to LIGHT
+    )
+
+    fun isDark(theme: String): Boolean = theme == AMOLED || theme == DARK
+}
+
+/** Full-black dark theme for AMOLED screens. */
+fun amoledScheme() = darkColorScheme(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF0B0B0B),
+    surfaceContainer = Color(0xFF121212),
+    surfaceContainerHigh = Color(0xFF1A1A1A),
+    surfaceContainerHighest = Color(0xFF242424)
+)
+
+/** Warm, slightly yellow light theme - bright but not glaring. */
+fun sandScheme() = lightColorScheme(
+    primary = Color(0xFF6D5D00),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFF3E48C),
+    onPrimaryContainer = Color(0xFF221C00),
+    background = Color(0xFFF7EFDA),
+    surface = Color(0xFFF7EFDA),
+    surfaceContainerLowest = Color(0xFFFFF8E7),
+    surfaceContainerLow = Color(0xFFF5EACD),
+    surfaceContainer = Color(0xFFEFE1BE),
+    surfaceContainerHigh = Color(0xFFE8D6AE),
+    surfaceContainerHighest = Color(0xFFE0CC9E),
+    outline = Color(0xFF7C7667)
+)
+
+/** Light gray theme - never pure white. */
+fun lightGrayScheme() = lightColorScheme(
+    background = Color(0xFFE5E7EB),
+    surface = Color(0xFFE5E7EB),
+    surfaceContainerLowest = Color(0xFFF0F1F4),
+    surfaceContainerLow = Color(0xFFDFE2E7),
+    surfaceContainer = Color(0xFFD8DCE1),
+    surfaceContainerHigh = Color(0xFFD0D4DA),
+    surfaceContainerHighest = Color(0xFFC7CCD3)
+)
+
+fun baseScheme(theme: String): ColorScheme = when (theme) {
+    AppTheme.AMOLED -> amoledScheme()
+    AppTheme.SAND -> sandScheme()
+    AppTheme.LIGHT -> lightGrayScheme()
+    else -> darkColorScheme()
+}
+
+/** Theme sections the user may override, key to label. */
+val CustomColorRoles = listOf(
+    "background" to "Background",
+    "surface" to "Surface",
+    "surfaceContainer" to "Surface Container",
+    "primary" to "Primary",
+    "onPrimary" to "On Primary",
+    "primaryContainer" to "Primary Container",
+    "onPrimaryContainer" to "On Primary Container",
+    "terminal" to "Terminal"
+)
+
+/** Default output-console background: fixed dark on dark themes, theme surface on light ones. */
+fun defaultTerminalBg(theme: String, scheme: ColorScheme): Color =
+    if (AppTheme.isDark(theme)) Color(0xFF0D1117) else scheme.surfaceContainer
+
+/** Normalize "#rgb", "#rrggbb" or "#aarrggbb" to "#AARRGGBB", else null. */
+fun normalizeHex(input: String): String? {
+    var h = input.trim().removePrefix("#")
+    if (h.length == 3) h = h.map { "$it$it" }.joinToString("")
+    if (h.length == 6) h = "FF$h"
+    if (h.length != 8 || !h.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
+    return "#" + h.uppercase()
+}
+
+fun hexToColor(hex: String): Color? {
+    val n = normalizeHex(hex) ?: return null
+    val digits = n.removePrefix("#")
+    // Same pattern as izs-ssh schemeColorArgb: build an ARGB Int, then Color(Int).
+    // NOTE: Color(ULong) is NOT ARGB — it expects a packed color and corrupts
+    // the value (crashed Paint.setColor with "Invalid ID"). Never pass raw hex there.
+    val argb: Int = when (digits.length) {
+        6 -> (0xFF000000.toInt() or digits.toInt(16))
+        8 -> digits.toUInt(16).toInt()
+        else -> return null
+    }
+    return Color(argb)
+}
+
+fun colorToHex(color: Color): String {
+    fun b(v: Float) = (v * 255).roundToInt().coerceIn(0, 255)
+    val a = b(color.alpha)
+    // Like izs-ssh argbToHex: keep alpha digits only when not opaque.
+    return if (a == 255) "#%02X%02X%02X".format(b(color.red), b(color.green), b(color.blue))
+    else "#%02X%02X%02X%02X".format(a, b(color.red), b(color.green), b(color.blue))
+}
+
+/** Apply user overrides on top of a base scheme. Invalid values are ignored. */
+fun ColorScheme.withOverrides(o: Map<String, String>): ColorScheme {
+    fun c(key: String, fallback: Color): Color = o[key]?.let { hexToColor(it) } ?: fallback
+    return copy(
+        background = c("background", background),
+        surface = c("surface", surface),
+        surfaceContainer = c("surfaceContainer", surfaceContainer),
+        primary = c("primary", primary),
+        onPrimary = c("onPrimary", onPrimary),
+        primaryContainer = c("primaryContainer", primaryContainer),
+        onPrimaryContainer = c("onPrimaryContainer", onPrimaryContainer)
+    )
+}
