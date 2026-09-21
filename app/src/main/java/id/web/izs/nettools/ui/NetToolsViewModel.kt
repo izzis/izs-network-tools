@@ -8,6 +8,7 @@ import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.HttpHeadersFetcher
 import id.web.izs.nettools.core.IpScan
+import id.web.izs.nettools.core.InternetDbClient
 import id.web.izs.nettools.core.IpInfoClient
 import id.web.izs.nettools.core.PingRunner
 import id.web.izs.nettools.core.PortChecker
@@ -36,6 +37,7 @@ data class HomeUiState(
     val digType: String = "A",
     val pingGlobal: Boolean = false,
     val traceGlobal: Boolean = false,
+    val portsGlobal: Boolean = false,
     val globalProbes: Int = 10,
     val globalCountry: String = "",
     val lines: List<String> = emptyList(),
@@ -106,6 +108,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     /** Global scope is per-session (like Dig's record type), not saved. */
     fun setPingGlobal(g: Boolean) = _state.update { it.copy(pingGlobal = g) }
     fun setTraceGlobal(g: Boolean) = _state.update { it.copy(traceGlobal = g) }
+    /** Global Ports (Shodan InternetDB) is per-session, default local. */
+    fun setPortsGlobal(g: Boolean) = _state.update { it.copy(portsGlobal = g) }
     fun setGlobalProbes(n: Int) = _state.update { it.copy(globalProbes = n) }
     fun setGlobalCountry(c: String) = _state.update { it.copy(globalCountry = c.trim().uppercase().take(2)) }
     fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
@@ -253,7 +257,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.WHOIS -> "RDAP + WHOIS port 43"
             Tool.IPINFO -> s.ipLookupBase
             Tool.MYIP -> s.myIpBase
-            Tool.PORTS -> "TCP connect"
+            Tool.PORTS -> if (st.portsGlobal) "internetdb" else "TCP connect"
             Tool.CERT -> "TLS handshake"
             Tool.HEADERS -> "HTTP GET"
             Tool.SWEEP -> "ping sweep"
@@ -275,7 +279,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.WHOIS -> WhoisRdapClient.lookup(parsed.host, s.rdapBase, s.whoisServer, s.whoisPort, s.timeoutMs)
             Tool.IPINFO -> IpInfoClient.lookup(parsed.host, s.ipLookupBase)
             Tool.MYIP -> IpInfoClient.lookup("", s.myIpBase)
-            Tool.PORTS -> PortChecker.check(parsed.host, parsed.port, s.timeoutMs, PortChecker.parsePorts(s.portList))
+            Tool.PORTS -> if (st.portsGlobal) InternetDbClient.lookup(parsed.host)
+                else PortChecker.check(parsed.host, parsed.port, s.timeoutMs, PortChecker.parsePorts(s.portList))
             Tool.CERT -> CertChecker.fetch(parsed.host, parsed.port ?: 443, s.timeoutMs)
             Tool.HEADERS -> HttpHeadersFetcher.fetch(rawTarget, s.timeoutMs)
             Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline)

@@ -410,6 +410,7 @@ fun HomeScreen(
                     when (t) {
                         Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
                         Tool.TRACE -> if (state.traceGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
+                        Tool.PORTS -> if (state.portsGlobal) "Global" else "Local"
                         else -> null
                     }
                 },
@@ -417,7 +418,7 @@ fun HomeScreen(
                 onLongPress = { t ->
                     when {
                         toolServerSlot(t, state.settings) != null -> serverTool = t
-                        t == Tool.PING || t == Tool.TRACE -> scopeTool = t
+                        t == Tool.PING || t == Tool.TRACE || t == Tool.PORTS -> scopeTool = t
                     }
                 }
             )
@@ -432,14 +433,23 @@ fun HomeScreen(
                 }
             }
             scopeTool?.let { t ->
-                val isGlobal = if (t == Tool.PING) state.pingGlobal else state.traceGlobal
+                val isGlobal = when (t) {
+                    Tool.PING -> state.pingGlobal
+                    Tool.TRACE -> state.traceGlobal
+                    else -> state.portsGlobal
+                }
                 ScopePickerDialog(
                     tool = t,
                     isGlobal = isGlobal,
                     probes = state.globalProbes,
                     country = state.globalCountry,
+                    simple = t == Tool.PORTS,
                     onSave = { g, n, c ->
-                        if (t == Tool.PING) vm.setPingGlobal(g) else vm.setTraceGlobal(g)
+                        when (t) {
+                            Tool.PING -> vm.setPingGlobal(g)
+                            Tool.TRACE -> vm.setTraceGlobal(g)
+                            else -> vm.setPortsGlobal(g)
+                        }
                         vm.setGlobalProbes(n)
                         vm.setGlobalCountry(c)
                     },
@@ -731,16 +741,16 @@ private fun ToolSelectorRow(
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )
-                    if (server != null) {
-                        Text(
-                            server,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    // Every cell always renders the subtitle line (nbsp placeholder
+                    // when none) so all 10 buttons stay uniformly 2 lines tall.
+                    Text(
+                        server ?: "\u00A0",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -751,13 +761,15 @@ private fun ToolSelectorRow(
 private fun globalSub(probes: Int, country: String): String =
     if (country.isEmpty()) "Global x$probes" else "Global x$probes $country"
 
-/** Long-press dialog for Ping/Trace: local engine or Globalping + probe count. */
+/** Long-press dialog for Ping/Trace/Ports: local engine or global source.
+ *  Simple variant (Ports) hides probe count + country: just Local vs Global. */
 @Composable
 private fun ScopePickerDialog(
     tool: Tool,
     isGlobal: Boolean,
     probes: Int,
     country: String,
+    simple: Boolean = false,
     onSave: (Boolean, Int, String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -765,7 +777,12 @@ private fun ScopePickerDialog(
     var n by remember { mutableStateOf(probes) }
     var c by remember { mutableStateOf(country) }
     var custom by remember { mutableStateOf(country) }
-    val localLabel = if (tool == Tool.PING) "This device" else "System"
+    val localLabel = when (tool) {
+        Tool.PING -> "This device"
+        Tool.TRACE -> "System"
+        else -> "Local (live TCP connect)"
+    }
+    val globalLabel = if (simple) "Global (Shodan InternetDB)" else "Global (worldwide probes)"
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("${tool.title}: source") },
@@ -773,7 +790,7 @@ private fun ScopePickerDialog(
             // Fixed header (source, probes, custom field); only the
             // country preset list below scrolls.
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                listOf(false to localLabel, true to "Global (worldwide probes)").forEach { (g, name) ->
+                listOf(false to localLabel, true to globalLabel).forEach { (g, name) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -786,7 +803,7 @@ private fun ScopePickerDialog(
                         Text(name, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                if (global) {
+                if (global && !simple) {
                     Text(
                         "Probes",
                         style = MaterialTheme.typography.labelLarge,
@@ -804,7 +821,7 @@ private fun ScopePickerDialog(
                 }
                 // Single probe: let the user pick where it runs from.
                 // Empty code = API picks randomly worldwide (the default).
-                if (global && n == 1) {
+                if (global && n == 1 && !simple) {
                     Text(
                         "Probe location",
                         style = MaterialTheme.typography.labelLarge,
