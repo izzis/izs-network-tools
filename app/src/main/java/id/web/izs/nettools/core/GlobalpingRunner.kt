@@ -84,17 +84,27 @@ object GlobalpingRunner {
             for (i in 0 until results.length()) {
                 val r = results.optJSONObject(i) ?: continue
                 val key = "$LIVE$runTag:$i"
-                if (r.optString("status") == "in-progress") {
+                val res = r.optJSONObject("result")
+                // Two status levels: the entry's and the inner result's. Either
+                // can lag as "in-progress" — only settle when both are final,
+                // so the literal string "in-progress" can never reach output.
+                if (r.optString("status") == "in-progress" ||
+                    res?.optString("status") == "in-progress"
+                ) {
                     if (live.add(i)) emit("$key\n${probeLabel(r.optJSONObject("probe"))}: …")
                     continue
                 }
                 if (settled.add(i)) {
-                    emit("$key\n${format(r.optJSONObject("probe"), r.optJSONObject("result")) ?: "no result"}")
+                    emit("$key\n${format(r.optJSONObject("probe"), res) ?: "no result"}")
                 }
             }
             onProgress("Global: ${settled.size}/$probes probes")
             val pending = (0 until results.length())
-                .any { k -> results.optJSONObject(k)?.optString("status") == "in-progress" }
+                .any { k ->
+                    val rk = results.optJSONObject(k)
+                    rk?.optString("status") == "in-progress" ||
+                        rk?.optJSONObject("result")?.optString("status") == "in-progress"
+                }
             if (m.optString("status") == "finished" && !pending) {
                 done = true
                 return
@@ -195,6 +205,8 @@ object GlobalpingRunner {
 
     private fun formatPing(probe: JSONObject?, res: JSONObject?): String? {
         if (res == null) return null
+        // Safety net: "in-progress" must never surface as text (see runMeasure).
+        if (res.optString("status") == "in-progress") return "${probeLabel(probe)}: …"
         if (res.optString("status") != "finished") return "${probeLabel(probe)}: ${res.optString("status")}"
         val st = res.optJSONObject("stats")
         return if (st != null) {
@@ -211,6 +223,8 @@ object GlobalpingRunner {
 
     private fun formatTrace(probe: JSONObject?, res: JSONObject?): String? {
         if (res == null) return null
+        // Safety net: "in-progress" must never surface as text (see runMeasure).
+        if (res.optString("status") == "in-progress") return "${probeLabel(probe)}: …"
         if (res.optString("status") != "finished") return "${probeLabel(probe)}: ${res.optString("status")}"
         val hops = res.optJSONArray("hops") ?: return "${probeLabel(probe)}: no hops"
         val sb = StringBuilder(probeLabel(probe)).append(':')
