@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,14 +33,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,9 +54,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.roundToInt
 
 private val CuratedColors = listOf(
-    "#000000", "#0D1117", "#1A1A1A", "#202327", "#21262D", "#2B2D31",
+    "#000000", "#0D1117", "#141A24", "#202327", "#21262D", "#2B2D31",
     "#383A40", "#424242", "#757575", "#BDBDBD", "#E0E0E0", "#FFFFFF",
     "#B71C1C", "#E53935", "#EF9A9A", "#E65100", "#FB8C00", "#FFCC80",
     "#F9A825", "#FDD835", "#FFF59D", "#33691E", "#66BB6A", "#A5D6A7",
@@ -269,7 +273,8 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
     }
 }
 
-/** Preset swatch grid (tap = apply, dialog stays open) + manual hex field (live apply). */
+/** Preset swatch grid (tap = apply, dialog stays open) + manual hex field (live apply).
+ *  Tapping the preview box opens the full HSV picker in a new dialog. */
 @Composable
 private fun ColorPickerContent(
     currentHex: String,
@@ -277,6 +282,12 @@ private fun ColorPickerContent(
 ) {
     var hex by remember(currentHex) { mutableStateOf(currentHex) }
     var hexError by remember { mutableStateOf(false) }
+    var fullPicker by remember { mutableStateOf(false) }
+    fun pick(h: String) {
+        hex = h
+        hexError = false
+        onPick(h)
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -287,11 +298,22 @@ private fun ColorPickerContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             val preview = hexToColor(hex)
+            // Tappable preview: opens the full color picker. The badge icon
+            // signals that this is a button, not a static swatch.
             Box(
                 modifier = Modifier.size(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(preview ?: MaterialTheme.colorScheme.surfaceVariant)
-            )
+                    .clickable { preview?.let { fullPicker = true } },
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Icon(
+                    Icons.Filled.Palette,
+                    contentDescription = "Open full color picker",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp).padding(2.dp)
+                )
+            }
             Text(
                 if (hexError) "Invalid hex" else hex.uppercase(),
                 style = MaterialTheme.typography.bodyMedium,
@@ -312,9 +334,7 @@ private fun ColorPickerContent(
                         .background(col)
                         .clickable {
                             val norm = colorToHex(col)
-                            hex = norm
-                            hexError = false
-                            onPick(norm)
+                            pick(norm)
                         }
                 )
             }
@@ -332,6 +352,91 @@ private fun ColorPickerContent(
             isError = hexError,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { hexToColor(hex)?.let { onPick(colorToHex(it)) } }),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+    if (fullPicker) {
+        FullColorPickerDialog(
+            currentHex = hex,
+            onPick = ::pick,
+            onDismiss = { fullPicker = false }
+        )
+    }
+}
+
+/** Full color picker in its own dialog: Hue/Saturation/Brightness sliders
+ *  with a live preview. Sliding only updates the local preview (cheap);
+ *  the setting applies once on Done, so dragging stays smooth. Dismissing
+ *  without Done discards the change. */
+@Composable
+private fun FullColorPickerDialog(
+    currentHex: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Seed sliders from the current color (android HSV; Compose has no direct getter).
+    val seed = remember(currentHex) {
+        val argb = normalizeHex(currentHex)?.removePrefix("#")?.toLong(16)?.toInt()
+            ?: android.graphics.Color.BLACK
+        FloatArray(3).also { android.graphics.Color.colorToHSV(argb, it) }
+    }
+    var h by remember(seed) { mutableFloatStateOf(seed[0]) }
+    var s by remember(seed) { mutableFloatStateOf(seed[1]) }
+    var v by remember(seed) { mutableFloatStateOf(seed[2]) }
+    val preview = Color(android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pick a color") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(preview)
+                )
+                Text(
+                    colorToHex(preview).uppercase(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                HsvSlider("Hue", "${h.roundToInt()}°", h, 0f, 360f) { h = it }
+                HsvSlider("Saturation", "${(s * 100).roundToInt()}%", s, 0f, 1f) { s = it }
+                HsvSlider("Brightness", "${(v * 100).roundToInt()}%", v, 0f, 1f) { v = it }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onPick(colorToHex(preview))
+                onDismiss()
+            }) { Text("Done") }
+        }
+    )
+}
+
+@Composable
+private fun HsvSlider(
+    label: String,
+    valueText: String,
+    value: Float,
+    min: Float,
+    max: Float,
+    onChange: (Float) -> Unit
+) {
+    Column {
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(label, style = MaterialTheme.typography.bodySmall)
+            Text(valueText, style = MaterialTheme.typography.bodySmall)
+        }
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = min..max,
             modifier = Modifier.fillMaxWidth()
         )
     }

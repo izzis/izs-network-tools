@@ -34,6 +34,18 @@ fun amoledScheme() = darkColorScheme(
     surfaceContainerHighest = Color(0xFF242424)
 )
 
+/** Neutral cool-gray dark theme (default) - replaces the stock M3 baseline,
+ *  whose #1C1B1F background has a noticeably warm/reddish tint. */
+fun darkScheme() = darkColorScheme(
+    background = Color(0xFF101216),
+    surface = Color(0xFF101216),
+    surfaceContainerLowest = Color(0xFF0B0D10),
+    surfaceContainerLow = Color(0xFF15181D),
+    surfaceContainer = Color(0xFF1A1E24),
+    surfaceContainerHigh = Color(0xFF21262E),
+    surfaceContainerHighest = Color(0xFF292F38)
+)
+
 /** Warm, slightly yellow light theme - bright but not glaring. */
 fun sandScheme() = lightColorScheme(
     primary = Color(0xFF6D5D00),
@@ -65,7 +77,7 @@ fun baseScheme(theme: String): ColorScheme = when (theme) {
     AppTheme.AMOLED -> amoledScheme()
     AppTheme.SAND -> sandScheme()
     AppTheme.LIGHT -> lightGrayScheme()
-    else -> darkColorScheme()
+    else -> darkScheme()
 }
 
 /** Theme sections the user may override, key to label. */
