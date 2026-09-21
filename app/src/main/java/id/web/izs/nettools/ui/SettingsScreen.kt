@@ -113,9 +113,16 @@ private fun ServerDropdown(
     }
 
     Box(modifier = Modifier.fillMaxWidth()) {
+        // Typing stays local (no parent recompose per keystroke); the trimmed
+        // value commits on Done, focus loss, or preset pick.
+        var text by remember(value) { mutableStateOf(value) }
+        fun sync() {
+            val t = text.trim()
+            if (t != value) onChange(t)
+        }
         OutlinedTextField(
-            value = value,
-            onValueChange = { onChange(it.trim()) },
+            value = text,
+            onValueChange = { text = it },
             label = { Text(label) },
             singleLine = true,
             trailingIcon = {
@@ -124,8 +131,8 @@ private fun ServerDropdown(
                 }
             },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-            modifier = Modifier.fillMaxWidth()
+            keyboardActions = KeyboardActions(onDone = { sync(); focusManager.clearFocus() }),
+            modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) sync() }
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             presets.forEach { (name, url) ->
@@ -264,6 +271,9 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
             // system back gesture (from the very screen edge) still works.
             HorizontalPager(
                 state = pagerState,
+                // Neighbor pages stay composed so swiping never pays
+                // first-composition cost mid-gesture (4 light pages, cheap).
+                beyondViewportPageCount = 1,
                 modifier = Modifier.weight(1f)
             ) { page ->
                 Column(
@@ -307,15 +317,20 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
         presets = IpInfoPresets.myIp,
         onChange = { update(s.copy(myIpBase = it)) }
     )
+    var tokenText by remember(s.globalpingToken) { mutableStateOf(s.globalpingToken) }
+    fun syncToken() {
+        val t = tokenText.trim()
+        if (t != s.globalpingToken) update(s.copy(globalpingToken = t))
+    }
     OutlinedTextField(
-        value = s.globalpingToken,
-        onValueChange = { update(s.copy(globalpingToken = it.trim())) },
+        value = tokenText,
+        onValueChange = { tokenText = it },
         label = { Text("Globalping token (optional, Global Ping/Trace)") },
         placeholder = { Text("Empty = anonymous (250 tests/hour)") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-        modifier = Modifier.fillMaxWidth()
+        keyboardActions = KeyboardActions(onDone = { syncToken(); focusManager.clearFocus() }),
+        modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) syncToken() }
     )
 }
 
@@ -371,18 +386,23 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
         label = "Ping count (0 = nonstop)",
         onCommit = { update(s.copy(pingCount = it)) }
     )
+            var portsText by remember(s.portList) { mutableStateOf(s.portList) }
+            fun syncPorts() {
+                val t = portsText.filter { c -> c.isDigit() || c in ",; \n\t-" }
+                if (t != s.portList) update(s.copy(portList = t))
+            }
             OutlinedTextField(
-                value = s.portList,
+                value = portsText,
                 // Number keyboard + filter: only digits, separators and "-" get through.
                 onValueChange = { v ->
-                    update(s.copy(portList = v.filter { c -> c.isDigit() || c in ",; \n\t-" }))
+                    portsText = v.filter { c -> c.isDigit() || c in ",; \n\t-" }
                 },
                 label = { Text("Ports: port list (e.g. 22,80,8000-8010)") },
                 minLines = 3,
                 maxLines = 5,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) syncPorts() },
                 keyboardOptions = numberField,
-                keyboardActions = done
+                keyboardActions = KeyboardActions(onDone = { syncPorts(); focusManager.clearFocus() })
             )
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
