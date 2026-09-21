@@ -6,9 +6,9 @@ through the privileged system `ping` binary.
 
 | Tool | Backend |
 |------|---------|
-| Ping | `/system/bin/ping` (`-c`, `-W`), streamed line by line |
+| Ping | `/system/bin/ping` (`-c`, `-W`), streamed line by line — or Global (Globalping probes worldwide) |
 | Dig | dnsjava against your server; A/AAAA fall back to system resolver |
-| Trace | real `traceroute` binary if present, else TTL-limited ping per hop |
+| Trace | real `traceroute` binary if present, else TTL-limited ping per hop — or Global (Globalping probes worldwide) |
 | Whois | RDAP via IANA bootstrap (`data.iana.org/rdap/dns.json`, `rdap.org`), fallback WHOIS TCP/43 with one referral hop |
 | IP Info | HTTPS JSON APIs (see SERVERS.md), generic key/value rendering |
 | My IP | same client, self-lookup endpoint |
@@ -25,6 +25,8 @@ through the privileged system `ping` binary.
 - If no hop answers, the output says why (ICMP blocked or TTL ignored).
 - Cert on non-TLS ports (SMTP/IMAP) fails honestly: they need STARTTLS.
 - IP-only providers (ipify, icanhazip, amazon) report just your own IP.
+- Global Ping/Trace need no key (250 tests/hour, max 50 probes anonymous);
+  optional token in Servers raises the limit. Needs internet, obviously.
 
 ## Output colors
 

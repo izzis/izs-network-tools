@@ -92,8 +92,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.core.DnsRunner
+import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.DnsPresets
+import id.web.izs.nettools.model.GlobalpingCountries
 import id.web.izs.nettools.model.IpInfoPresets
 import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
@@ -187,6 +189,8 @@ private val kvPattern = Regex("^([A-Za-z][A-Za-z0-9 _.\\-/]{0,40}): (.*)$")
 /** One output line: semantic color + dim key / bright value for "Key: value" lines. */
 @Composable
 private fun OutputLine(line: String, colored: Boolean, p: TerminalPalette, fontSize: TextUnit) {
+    // Live-update bookkeeping ("key\ntext") is never shown.
+    val line = GlobalpingRunner.displayOf(line)
     if (!colored) {
         Text(line, color = p.text, fontFamily = FontFamily.Monospace, fontSize = fontSize)
         return
@@ -397,13 +401,24 @@ fun HomeScreen(
             // Tap = select (+ auto-run when enabled, except IP Scan).
             // Long-press a server tool = change its server.
             var serverTool by remember { mutableStateOf<Tool?>(null) }
+            var scopeTool by remember { mutableStateOf<Tool?>(null) }
             ToolSelector(
                 selected = state.tool,
                 enabled = !state.running,
                 settings = state.settings,
+                extraSub = { t ->
+                    when (t) {
+                        Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
+                        Tool.TRACE -> if (state.traceGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
+                        else -> null
+                    }
+                },
                 onSelect = { if (state.settings.autoRunOnTool) vm.selectAndRun(it) else vm.setTool(it) },
                 onLongPress = { t ->
-                    if (toolServerSlot(t, state.settings) != null) serverTool = t
+                    when {
+                        toolServerSlot(t, state.settings) != null -> serverTool = t
+                        t == Tool.PING || t == Tool.TRACE -> scopeTool = t
+                    }
                 }
             )
             serverTool?.let { t ->
@@ -415,6 +430,21 @@ fun HomeScreen(
                         onDismiss = { serverTool = null }
                     )
                 }
+            }
+            scopeTool?.let { t ->
+                val isGlobal = if (t == Tool.PING) state.pingGlobal else state.traceGlobal
+                ScopePickerDialog(
+                    tool = t,
+                    isGlobal = isGlobal,
+                    probes = state.globalProbes,
+                    country = state.globalCountry,
+                    onSave = { g, n, c ->
+                        if (t == Tool.PING) vm.setPingGlobal(g) else vm.setTraceGlobal(g)
+                        vm.setGlobalProbes(n)
+                        vm.setGlobalCountry(c)
+                    },
+                    onDismiss = { scopeTool = null }
+                )
             }
             // --- Contextual options ---
             if (state.tool == Tool.DIG) {
@@ -436,7 +466,8 @@ fun HomeScreen(
             }
             if (state.tool == Tool.TRACE) {
                 Text(
-                    "Max ${state.settings.maxHops} hops - change in Settings",
+                    (if (state.traceGlobal) "Global trace via Globalping (x${state.globalProbes} probes) - hold Trace to change"
+                    else "Max ${state.settings.maxHops} hops - change in Settings (hold Trace for Global)"),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -501,7 +532,10 @@ fun HomeScreen(
                                 )
                             }
                             // Scan progress, numbers only (e.g. 25/254), IP Scan only.
-                            if (state.tool == Tool.SWEEP) {
+                            // Global progress (e.g. 3/10 probes) while a global run is live.
+                            val isGlobalRun = (state.tool == Tool.PING && state.pingGlobal) ||
+                                (state.tool == Tool.TRACE && state.traceGlobal)
+                            if (state.tool == Tool.SWEEP || (isGlobalRun && state.running)) {
                                 state.progress?.let {
                                     val nums = Regex("""\d+/\d+""").find(it)?.value ?: it
                                     Spacer(Modifier.width(8.dp))
@@ -614,18 +648,19 @@ private fun ToolSelector(
     selected: Tool,
     enabled: Boolean,
     settings: AppSettings,
+    extraSub: (Tool) -> String?,
     onSelect: (Tool) -> Unit,
     onLongPress: (Tool) -> Unit
 ) {
     val tools = Tool.entries
     val half = (tools.size + 1) / 2
     Column(modifier = Modifier.fillMaxWidth()) {
-        ToolSelectorRow(tools.take(half), selected, enabled, settings, onSelect, onLongPress)
+        ToolSelectorRow(tools.take(half), selected, enabled, settings, extraSub, onSelect, onLongPress)
         HorizontalDivider(
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant
         )
-        ToolSelectorRow(tools.drop(half), selected, enabled, settings, onSelect, onLongPress)
+        ToolSelectorRow(tools.drop(half), selected, enabled, settings, extraSub, onSelect, onLongPress)
     }
 }
 
@@ -654,6 +689,7 @@ private fun ToolSelectorRow(
     selected: Tool,
     enabled: Boolean,
     settings: AppSettings,
+    extraSub: (Tool) -> String?,
     onSelect: (Tool) -> Unit,
     onLongPress: (Tool) -> Unit
 ) {
@@ -670,7 +706,8 @@ private fun ToolSelectorRow(
                 )
             }
             val isSel = t == selected
-            val server = toolServerSlot(t, settings)?.current?.let(::shortServer)
+            val server = extraSub(t)
+                ?: toolServerSlot(t, settings)?.current?.let(::shortServer)
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -710,7 +747,114 @@ private fun ToolSelectorRow(
     }
 }
 
-/** Long-press dialog: pick a preset or type a custom server for one tool. */
+/** Short gray subtitle for an active global scope, e.g. "Global x10" or "Global x1 ID". */
+private fun globalSub(probes: Int, country: String): String =
+    if (country.isEmpty()) "Global x$probes" else "Global x$probes $country"
+
+/** Long-press dialog for Ping/Trace: local engine or Globalping + probe count. */
+@Composable
+private fun ScopePickerDialog(
+    tool: Tool,
+    isGlobal: Boolean,
+    probes: Int,
+    country: String,
+    onSave: (Boolean, Int, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var global by remember { mutableStateOf(isGlobal) }
+    var n by remember { mutableStateOf(probes) }
+    var c by remember { mutableStateOf(country) }
+    var custom by remember { mutableStateOf(country) }
+    val localLabel = if (tool == Tool.PING) "This device" else "System"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${tool.title}: source") },
+        text = {
+            // Fixed header (source, probes, custom field); only the
+            // country preset list below scrolls.
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                listOf(false to localLabel, true to "Global (worldwide probes)").forEach { (g, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { global = g }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = global == g, onClick = { global = g })
+                        Text(name, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                if (global) {
+                    Text(
+                        "Probes",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(1, 5, 10, 25, 50).forEach { count ->
+                            FilterChip(
+                                selected = n == count,
+                                onClick = { n = count },
+                                label = { Text("$count") }
+                            )
+                        }
+                    }
+                }
+                // Single probe: let the user pick where it runs from.
+                // Empty code = API picks randomly worldwide (the default).
+                if (global && n == 1) {
+                    Text(
+                        "Probe location",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    OutlinedTextField(
+                        value = custom,
+                        onValueChange = { custom = it.trim().uppercase().take(2); c = custom },
+                        label = { Text("Country code (empty = auto)") },
+                        placeholder = { Text("e.g. ID") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Done
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    // Only this preset list scrolls; everything above stays pinned.
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 180.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        GlobalpingCountries.all.forEach { (name, code) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { c = code; custom = code },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = c == code,
+                                    onClick = { c = code; custom = code }
+                                )
+                                Text(name, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(global, n, c); onDismiss() }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
 @Composable
 private fun ServerPickerDialog(
     tool: Tool,
@@ -724,7 +868,10 @@ private fun ServerPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text("${tool.title}: ${slot.label}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
                     value = custom,
                     onValueChange = { custom = it.trim(); picked = custom },

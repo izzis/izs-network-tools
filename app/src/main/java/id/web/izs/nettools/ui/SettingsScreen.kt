@@ -278,6 +278,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
 
 @Composable
 private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
+    val focusManager = LocalFocusManager.current
     ServerDropdown(
         label = "DNS server (Dig)",
         value = s.dnsServer,
@@ -295,6 +296,16 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
         value = s.myIpBase,
         presets = IpInfoPresets.myIp,
         onChange = { update(s.copy(myIpBase = it)) }
+    )
+    OutlinedTextField(
+        value = s.globalpingToken,
+        onValueChange = { update(s.copy(globalpingToken = it.trim())) },
+        label = { Text("Globalping token (optional, Global Ping/Trace)") },
+        placeholder = { Text("Empty = anonymous (250 tests/hour)") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+        modifier = Modifier.fillMaxWidth()
     )
 }
 

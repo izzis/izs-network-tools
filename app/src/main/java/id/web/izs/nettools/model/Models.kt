@@ -36,6 +36,7 @@ data class AppSettings(
     val rdapBase: String = "https://rdap.org",
     val whoisServer: String = "whois.iana.org",
     val whoisPort: Int = 43,
+    val globalpingToken: String = "",
     val ipLookupBase: String = "https://ipwho.is",
     val myIpBase: String = "https://ipwho.is",
     val maxHops: Int = 20,
@@ -101,6 +102,34 @@ object WhoisPresets {
 object RdapPresets {
     val all = listOf(
         "rdap.org (auto)" to "https://rdap.org"
+    )
+}
+
+/** Globalping probe origin. Empty code = API picks randomly worldwide. */
+object GlobalpingCountries {
+    val all = listOf(
+        "Auto (worldwide)" to "",
+        "Indonesia" to "ID",
+        "Singapore" to "SG",
+        "Malaysia" to "MY",
+        "Thailand" to "TH",
+        "Vietnam" to "VN",
+        "Philippines" to "PH",
+        "Hong Kong" to "HK",
+        "Taiwan" to "TW",
+        "Japan" to "JP",
+        "South Korea" to "KR",
+        "India" to "IN",
+        "Australia" to "AU",
+        "UAE" to "AE",
+        "Germany" to "DE",
+        "Netherlands" to "NL",
+        "France" to "FR",
+        "United Kingdom" to "GB",
+        "Canada" to "CA",
+        "United States" to "US",
+        "Brazil" to "BR",
+        "South Africa" to "ZA"
     )
 }
 

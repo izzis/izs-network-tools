@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.izs.nettools.core.CertChecker
 import id.web.izs.nettools.core.DnsRunner
+import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.HttpHeadersFetcher
 import id.web.izs.nettools.core.IpScan
 import id.web.izs.nettools.core.IpInfoClient
@@ -33,6 +34,10 @@ data class HomeUiState(
     val target: String = "",
     val tool: Tool = Tool.PING,
     val digType: String = "A",
+    val pingGlobal: Boolean = false,
+    val traceGlobal: Boolean = false,
+    val globalProbes: Int = 10,
+    val globalCountry: String = "",
     val lines: List<String> = emptyList(),
     val running: Boolean = false,
     val progress: String? = null,
@@ -98,6 +103,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             run()
         }
     }
+    /** Global scope is per-session (like Dig's record type), not saved. */
+    fun setPingGlobal(g: Boolean) = _state.update { it.copy(pingGlobal = g) }
+    fun setTraceGlobal(g: Boolean) = _state.update { it.copy(traceGlobal = g) }
+    fun setGlobalProbes(n: Int) = _state.update { it.copy(globalProbes = n) }
+    fun setGlobalCountry(c: String) = _state.update { it.copy(globalCountry = c.trim().uppercase().take(2)) }
     fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
     fun clearMessage() = _state.update { it.copy(message = null) }
 
@@ -235,9 +245,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         val s = st.settings
         val backend = when (st.tool) {
-            Tool.PING -> "system ping " + (if (s.pingCount > 0) "x${s.pingCount}" else "nonstop")
+            Tool.PING -> if (st.pingGlobal) "globalping x${st.globalProbes}" + globalWhere(st)
+                else "system ping " + (if (s.pingCount > 0) "x${s.pingCount}" else "nonstop")
             Tool.DIG -> "dnsjava via ${s.dnsServer}"
-            Tool.TRACE -> "system traceroute if present, else TTL-ping"
+            Tool.TRACE -> if (st.traceGlobal) "globalping trace x${st.globalProbes}" + globalWhere(st)
+                else "system traceroute if present, else TTL-ping"
             Tool.WHOIS -> "RDAP + WHOIS port 43"
             Tool.IPINFO -> s.ipLookupBase
             Tool.MYIP -> s.myIpBase
@@ -255,9 +267,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
 
         val onProgress: (String) -> Unit = { msg -> _state.update { it.copy(progress = msg) } }
         val flow = when (st.tool) {
-            Tool.PING -> PingRunner.ping(parsed.host, s.pingCount)
+            Tool.PING -> if (st.pingGlobal) GlobalpingRunner.ping(parsed.host, st.globalProbes, st.globalCountry, s.globalpingToken, onProgress)
+                else PingRunner.ping(parsed.host, s.pingCount)
             Tool.DIG -> DnsRunner.lookup(parsed.host, st.digType, s.dnsServer, s.timeoutMs)
-            Tool.TRACE -> TraceRunner.traceroute(parsed.host, s.maxHops, onProgress)
+            Tool.TRACE -> if (st.traceGlobal) GlobalpingRunner.trace(parsed.host, st.globalProbes, st.globalCountry, s.globalpingToken, onProgress)
+                else TraceRunner.traceroute(parsed.host, s.maxHops, onProgress)
             Tool.WHOIS -> WhoisRdapClient.lookup(parsed.host, s.rdapBase, s.whoisServer, s.whoisPort, s.timeoutMs)
             Tool.IPINFO -> IpInfoClient.lookup(parsed.host, s.ipLookupBase)
             Tool.MYIP -> IpInfoClient.lookup("", s.myIpBase)
@@ -269,12 +283,30 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
                 .collect { line ->
-                    _state.update { it.copy(lines = it.lines + line) }
+                    _state.update { cur ->
+                        // Live-update lines ("key\ntext") replace the earlier
+                        // line with the same key in place; plain lines append.
+                        val key = line.substringBefore('\n')
+                        if (line.startsWith(GlobalpingRunner.LIVE)) {
+                            val idx = cur.lines.indexOfLast { l -> l.startsWith("$key\n") }
+                            val next = if (idx >= 0) {
+                                cur.lines.toMutableList().also { it[idx] = line }
+                            } else {
+                                cur.lines + line
+                            }
+                            cur.copy(lines = next.takeLast(2000))
+                        } else {
+                            cur.copy(lines = (cur.lines + line).takeLast(2000))
+                        }
+                    }
                 }
             _state.update { it.copy(running = false, progress = null) }
         }
     }
 
-    fun outputText(): String = _state.value.lines.joinToString("\n")
+    fun outputText(): String = _state.value.lines.joinToString("\n") { GlobalpingRunner.displayOf(it) }
+
+    private fun globalWhere(st: HomeUiState): String =
+        if (st.globalCountry.isEmpty()) " worldwide" else " ${st.globalCountry}"
 
 }
