@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TextDecrease
 import androidx.compose.material.icons.filled.TextIncrease
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -61,6 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -89,8 +92,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.core.DnsRunner
+import id.web.izs.nettools.model.AppSettings
+import id.web.izs.nettools.model.DnsPresets
+import id.web.izs.nettools.model.IpInfoPresets
 import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
+import id.web.izs.nettools.model.WhoisPresets
 import id.web.izs.nettools.model.sortedFor
 
 /** Console palette. Dark themes keep the classic dark terminal; light themes
@@ -388,12 +395,27 @@ fun HomeScreen(
 
             // --- Tool selector: exactly 2 rows, divider-separated, no boxes.
             // Tap = select (+ auto-run when enabled, except IP Scan).
+            // Long-press a server tool = change its server.
+            var serverTool by remember { mutableStateOf<Tool?>(null) }
             ToolSelector(
                 selected = state.tool,
                 enabled = !state.running,
-                onSelect = { if (state.settings.autoRunOnTool) vm.selectAndRun(it) else vm.setTool(it) }
+                settings = state.settings,
+                onSelect = { if (state.settings.autoRunOnTool) vm.selectAndRun(it) else vm.setTool(it) },
+                onLongPress = { t ->
+                    if (toolServerSlot(t, state.settings) != null) serverTool = t
+                }
             )
-
+            serverTool?.let { t ->
+                toolServerSlot(t, state.settings)?.let { slot ->
+                    ServerPickerDialog(
+                        tool = t,
+                        slot = slot,
+                        onSave = { vm.setToolServer(t, it) },
+                        onDismiss = { serverTool = null }
+                    )
+                }
+            }
             // --- Contextual options ---
             if (state.tool == Tool.DIG) {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -585,31 +607,55 @@ private fun TargetRow(
 /**
  * Tool selector: always exactly 2 rows, items separated by thin divider
  * lines — no boxes, no chips. Tap = run immediately.
+ * Long-press a server-backed tool (Dig/Whois/IP Info/My IP) = change server.
  */
 @Composable
 private fun ToolSelector(
     selected: Tool,
     enabled: Boolean,
-    onSelect: (Tool) -> Unit
+    settings: AppSettings,
+    onSelect: (Tool) -> Unit,
+    onLongPress: (Tool) -> Unit
 ) {
     val tools = Tool.entries
     val half = (tools.size + 1) / 2
     Column(modifier = Modifier.fillMaxWidth()) {
-        ToolSelectorRow(tools.take(half), selected, enabled, onSelect)
+        ToolSelectorRow(tools.take(half), selected, enabled, settings, onSelect, onLongPress)
         HorizontalDivider(
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant
         )
-        ToolSelectorRow(tools.drop(half), selected, enabled, onSelect)
+        ToolSelectorRow(tools.drop(half), selected, enabled, settings, onSelect, onLongPress)
     }
 }
+
+/** Server backing for the tools that have one; null = long-press does nothing. */
+private data class ServerSlot(
+    val label: String,
+    val current: String,
+    val presets: List<Pair<String, String>>
+)
+
+private fun toolServerSlot(tool: Tool, s: AppSettings): ServerSlot? = when (tool) {
+    Tool.DIG -> ServerSlot("DNS server", s.dnsServer, DnsPresets.all)
+    Tool.WHOIS -> ServerSlot("Whois server", s.whoisServer, WhoisPresets.all)
+    Tool.IPINFO -> ServerSlot("IP lookup provider", s.ipLookupBase, IpInfoPresets.lookup)
+    Tool.MYIP -> ServerSlot("My IP provider", s.myIpBase, IpInfoPresets.myIp)
+    else -> null
+}
+
+/** Short host part for the tiny subtitle under a tool name. */
+private fun shortServer(value: String): String =
+    value.substringAfter("://").substringBefore("/")
 
 @Composable
 private fun ToolSelectorRow(
     tools: List<Tool>,
     selected: Tool,
     enabled: Boolean,
-    onSelect: (Tool) -> Unit
+    settings: AppSettings,
+    onSelect: (Tool) -> Unit,
+    onLongPress: (Tool) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -624,27 +670,105 @@ private fun ToolSelectorRow(
                 )
             }
             val isSel = t == selected
+            val server = toolServerSlot(t, settings)?.current?.let(::shortServer)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable(
+                    .combinedClickable(
                         enabled = enabled,
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onSelect(t) }
-                    .padding(vertical = 10.dp),
+                        indication = null,
+                        onClick = { onSelect(t) },
+                        onLongClick = { onLongPress(t) }
+                    )
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    t.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSel) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        t.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSel) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                    if (server != null) {
+                        Text(
+                            server,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+/** Long-press dialog: pick a preset or type a custom server for one tool. */
+@Composable
+private fun ServerPickerDialog(
+    tool: Tool,
+    slot: ServerSlot,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var custom by remember(slot.current) { mutableStateOf(slot.current) }
+    var picked by remember(slot.current) { mutableStateOf(slot.current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${tool.title}: ${slot.label}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                OutlinedTextField(
+                    value = custom,
+                    onValueChange = { custom = it.trim(); picked = custom },
+                    label = { Text("Custom") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                slot.presets.forEach { (name, url) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { picked = url; custom = url }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = picked == url,
+                            onClick = { picked = url; custom = url }
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(name, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                url,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(picked.trim()); onDismiss() }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }

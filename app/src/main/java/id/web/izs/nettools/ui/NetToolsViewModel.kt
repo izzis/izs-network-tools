@@ -151,6 +151,21 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.saveSettings(cur.copy(savedSort = mode.name)) }
     }
 
+    /** Long-press on a tool cell: swap that tool's server/provider. */
+    fun setToolServer(tool: Tool, value: String) {
+        val v = value.trim()
+        if (v.isEmpty()) return
+        val cur = _state.value.settings
+        val next = when (tool) {
+            Tool.DIG -> cur.copy(dnsServer = v)
+            Tool.WHOIS -> cur.copy(whoisServer = v)
+            Tool.IPINFO -> cur.copy(ipLookupBase = v)
+            Tool.MYIP -> cur.copy(myIpBase = v)
+            else -> return
+        }
+        viewModelScope.launch { repo.saveSettings(next) }
+    }
+
     fun setCustomColor(role: String, hex: String) {
         viewModelScope.launch {
             val updated = _state.value.settings.customColors + (role to hex)

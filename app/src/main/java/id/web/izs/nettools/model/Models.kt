@@ -107,10 +107,10 @@ object RdapPresets {
 enum class Tool(val title: String) {
     PING("Ping"),
     DIG("Dig"),
-    TRACE("Trace"),
     WHOIS("Whois"),
     IPINFO("IP Info"),
     MYIP("My IP"),
+    TRACE("Trace"),
     PORTS("Ports"),
     CERT("Cert"),
     HEADERS("Headers"),
