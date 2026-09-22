@@ -322,16 +322,35 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
         val t = tokenText.trim()
         if (t != s.globalpingToken) update(s.copy(globalpingToken = t))
     }
+    // IPinfo token: only relevant when one of the IP servers points at ipinfo.io.
+    val showIpinfoToken = s.ipLookupBase.contains("ipinfo.io") || s.myIpBase.contains("ipinfo.io")
+    var ipinfoText by remember(s.ipinfoToken) { mutableStateOf(s.ipinfoToken) }
+    fun syncIpinfoToken() {
+        val t = ipinfoText.trim()
+        if (t != s.ipinfoToken) update(s.copy(ipinfoToken = t))
+    }
     OutlinedTextField(
         value = tokenText,
         onValueChange = { tokenText = it },
-        label = { Text("Globalping token (optional, Global Ping/Trace)") },
-        placeholder = { Text("Empty = anonymous (250 tests/hour)") },
+        label = { Text("Globalping token (Global Ping/Trace)") },
+        supportingText = { Text("Empty = anonymous (250 tests/hour)") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { syncToken(); focusManager.clearFocus() }),
         modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) syncToken() }
     )
+    if (showIpinfoToken) {
+        OutlinedTextField(
+            value = ipinfoText,
+            onValueChange = { ipinfoText = it },
+            label = { Text("IPinfo token (IP Info / My IP)") },
+            supportingText = { Text("Empty = anonymous (1000 lookups/day shared)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { syncIpinfoToken(); focusManager.clearFocus() }),
+            modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) syncIpinfoToken() }
+        )
+    }
 }
 
 @Composable

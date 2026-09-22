@@ -25,6 +25,7 @@ class SettingsRepository(private val context: Context) {
         val WHOIS = stringPreferencesKey("whois_server")
         val WHOIS_PORT = intPreferencesKey("whois_port")
         val GPTOKEN = stringPreferencesKey("globalping_token")
+        val IPINFOTOKEN = stringPreferencesKey("ipinfo_token")
         val IPINFO = stringPreferencesKey("ipinfo_base")
         val IPLOOKUP = stringPreferencesKey("iplookup_base")
         val MYIP = stringPreferencesKey("myip_base")
@@ -59,6 +60,7 @@ class SettingsRepository(private val context: Context) {
             whoisServer = p[K.WHOIS] ?: AppSettings().whoisServer,
             whoisPort = p[K.WHOIS_PORT] ?: AppSettings().whoisPort,
             globalpingToken = p[K.GPTOKEN] ?: "",
+            ipinfoToken = p[K.IPINFOTOKEN] ?: "",
             ipLookupBase = p[K.IPLOOKUP] ?: legacy ?: AppSettings().ipLookupBase,
             myIpBase = p[K.MYIP] ?: legacy ?: AppSettings().myIpBase,
             maxHops = p[K.MAX_HOPS] ?: AppSettings().maxHops,
@@ -89,6 +91,7 @@ class SettingsRepository(private val context: Context) {
             p[K.WHOIS] = s.whoisServer
             p[K.WHOIS_PORT] = s.whoisPort
             p[K.GPTOKEN] = s.globalpingToken
+            p[K.IPINFOTOKEN] = s.ipinfoToken
             p[K.IPLOOKUP] = s.ipLookupBase
             p[K.MYIP] = s.myIpBase
             p[K.MAX_HOPS] = s.maxHops

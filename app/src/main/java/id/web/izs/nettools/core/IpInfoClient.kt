@@ -17,8 +17,9 @@ object IpInfoClient {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    fun lookup(target: String, base: String): Flow<String> = flow {
+    fun lookup(target: String, base: String, token: String = ""): Flow<String> = flow {
         val b = base.trim().trimEnd('/')
+        val t = token.trim()
         val me = target.isEmpty()
         // Some free providers only report the caller's own IP (no lookup for others).
         val selfOnly = b.contains("api.ipify.org") ||
@@ -26,12 +27,22 @@ object IpInfoClient {
             b.contains("amazonaws.com")
         val url = when {
             b.contains("{ip}") -> b.replace("{ip}", if (me) "my" else target)
+            me && b.contains("api.ipinfo.io/lite") -> "$b/me"
             me && b.contains("ipaddress.to") -> "$b/my"
             me -> b
             selfOnly -> b
             b.contains("ip-api.com") -> "$b/$target?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query"
             b.contains("ipaddress.to") -> "$b/$target"
+            // Default ipinfo.io preset keeps "/json" in the base: the lookup
+            // path is ipinfo.io/{ip}/json, not ipinfo.io/json/{ip} (404).
+            b.equals("https://ipinfo.io/json", ignoreCase = true) -> "https://ipinfo.io/$target/json"
             else -> "$b/$target"
+        }.let {
+            // Free ipinfo.io token (Lite plan): authenticates the request for
+            // unlimited quota instead of the shared anonymous limit.
+            if (t.isNotEmpty() && b.contains("ipinfo.io")) {
+                if (it.contains("?")) "$it&token=$t" else "$it?token=$t"
+            } else it
         }
         val head = buildString {
             if (me) append(";; public IP of this device\n")

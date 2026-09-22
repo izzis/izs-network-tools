@@ -37,6 +37,7 @@ data class AppSettings(
     val whoisServer: String = "whois.iana.org",
     val whoisPort: Int = 43,
     val globalpingToken: String = "",
+    val ipinfoToken: String = "",
     val ipLookupBase: String = "https://ipwho.is",
     val myIpBase: String = "https://ipwho.is",
     val maxHops: Int = 20,
@@ -65,7 +66,8 @@ object IpInfoPresets {
         "ipwho.is (geo)" to "https://ipwho.is",
         "ip-api.com (geo)" to "http://ip-api.com/json",
         "ipaddress.to (geo+ASN)" to "https://ipaddress.to/api/lookup",
-        "ipinfo.io (geo)" to "https://ipinfo.io/json"
+        "ipinfo.io (geo)" to "https://ipinfo.io/json",
+        "ipinfo.io Lite (token required)" to "https://api.ipinfo.io/lite"
     )
 
     /** All providers incl. IP-only ones (own IP only). Used by My IP. */
