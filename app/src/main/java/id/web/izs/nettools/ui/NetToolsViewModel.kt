@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -68,6 +69,12 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         } }
         viewModelScope.launch { repo.savedHosts.collect { l -> _state.update { it.copy(saved = l) } } }
         viewModelScope.launch { repo.recentHosts.collect { l -> _state.update { it.copy(recent = l) } } }
+        // Restore the last ran target once at startup. Fresh install has none,
+        // so the bar stays empty; never overwrite text the user already typed.
+        viewModelScope.launch {
+            val last = repo.lastTarget.first()
+            if (last.isNotEmpty() && _state.value.target.isEmpty()) setTarget(last)
+        }
     }
 
     fun setTarget(v: String) {
@@ -281,6 +288,9 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
         _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
         if (st.tool != Tool.SWEEP && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
+        // Remember the used target for the next startup. My IP ignores the
+        // target bar, so it never overwrites; empty sweep keeps the old one.
+        if (st.tool != Tool.MYIP && rawTarget.isNotEmpty()) viewModelScope.launch { repo.saveLastTarget(rawTarget) }
 
         val onProgress: (String) -> Unit = { msg -> _state.update { it.copy(progress = msg) } }
         val flow = when (st.tool) {

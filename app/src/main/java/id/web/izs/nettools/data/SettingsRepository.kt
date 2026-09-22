@@ -49,6 +49,7 @@ class SettingsRepository(private val context: Context) {
         val SCHEME_NAME = stringPreferencesKey("color_scheme_name")
         val SAVED = stringPreferencesKey("saved_hosts")
         val RECENT = stringPreferencesKey("recent_hosts")
+        val LAST_TARGET = stringPreferencesKey("last_target")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -121,6 +122,15 @@ class SettingsRepository(private val context: Context) {
 
     val recentHosts: Flow<List<String>> = context.prefs.data.map { p ->
         p[K.RECENT]?.split('\n')?.filter { it.isNotBlank() }?.take(20) ?: emptyList()
+    }
+
+    /** Last ran target, restored into the target bar on startup. Empty on fresh install. */
+    val lastTarget: Flow<String> = context.prefs.data.map { p ->
+        p[K.LAST_TARGET] ?: ""
+    }
+
+    suspend fun saveLastTarget(v: String) {
+        context.prefs.edit { it[K.LAST_TARGET] = v }
     }
 
     private fun decodeColors(s: String?): Map<String, String> {
