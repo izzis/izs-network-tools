@@ -227,11 +227,12 @@ fun HomeScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
-    // Console follows the app theme: dark terminal on dark themes,
+    // Console follows the app theme: per-theme dark terminal on dark themes,
     // theme surfaces on light themes.
     val scheme = MaterialTheme.colorScheme
     val term = remember(state.settings.theme, scheme.surfaceContainer, state.settings.customColors) {
-        val base = if (AppTheme.isDark(state.settings.theme)) DarkTerminal
+        val base = if (AppTheme.isDark(state.settings.theme))
+            DarkTerminal.copy(bg = defaultTerminalBg(state.settings.theme, scheme))
             else lightTerminal(scheme.surfaceContainer, scheme.onSurface, scheme.onSurfaceVariant)
         // Custom terminal background: keep it readable by switching the text set
         // automatically (dark text on light bg, classic terminal on dark bg).

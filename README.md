@@ -29,7 +29,7 @@ Package: `id.web.izs.nettools`
 Extras: saved favorites + recent targets (max configurable, default 5),
 auto-run on tool pick and on saved-target pick (both toggleable), semantic
 output colors (toggleable, console follows light/dark theme), text size +/-, clear
-output (runs append, capped at 2000 lines), 4 app themes (AMOLED, Dark, Sand,
+output (runs append, capped at 2000 lines), 5 app themes (AMOLED, Dark, Darker, Sand,
 Light gray) with per-section custom colors saved as named schemes
 (same name = overwrite, new name = new scheme), double-press back to exit.
 

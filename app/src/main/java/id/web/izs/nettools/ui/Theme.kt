@@ -10,21 +10,30 @@ import kotlin.math.roundToInt
 object AppTheme {
     const val AMOLED = "amoled"
     const val DARK = "dark"
+    const val DARKER = "darker"
     const val SAND = "sand"
     const val LIGHT = "light"
 
     val presets = listOf(
         "AMOLED (pure black)" to AMOLED,
         "Dark" to DARK,
+        "Darker" to DARKER,
         "Sand (warm light)" to SAND,
         "Light gray" to LIGHT
     )
 
-    fun isDark(theme: String): Boolean = theme == AMOLED || theme == DARK
+    fun isDark(theme: String): Boolean = theme == AMOLED || theme == DARK || theme == DARKER
 }
 
 /** Full-black dark theme for AMOLED screens. */
 fun amoledScheme() = darkColorScheme(
+    primary = Color(0xFF64B5F6),
+    onPrimary = Color(0xFF0F2038),
+    primaryContainer = Color(0xFF01579B),
+    onPrimaryContainer = Color(0xFFD8EBFD),
+    secondary = Color(0xFF4DD0E1),
+    tertiary = Color(0xFF9D7CD8),
+    error = Color(0xFFE06C75),
     background = Color.Black,
     surface = Color.Black,
     surfaceContainerLowest = Color.Black,
@@ -34,9 +43,16 @@ fun amoledScheme() = darkColorScheme(
     surfaceContainerHighest = Color(0xFF242424)
 )
 
-/** Neutral cool-gray dark theme (default) - replaces the stock M3 baseline,
- *  whose #1C1B1F background has a noticeably warm/reddish tint. */
-fun darkScheme() = darkColorScheme(
+/** Darker cool-gray theme - the previous "Dark". Deep background (#101216),
+ *  for those who prefer a dimmer screen. */
+fun darkerScheme() = darkColorScheme(
+    primary = Color(0xFF64B5F6),
+    onPrimary = Color(0xFF0F2038),
+    primaryContainer = Color(0xFF01579B),
+    onPrimaryContainer = Color(0xFFD8EBFD),
+    secondary = Color(0xFF4DD0E1),
+    tertiary = Color(0xFF9D7CD8),
+    error = Color(0xFFE06C75),
     background = Color(0xFF101216),
     surface = Color(0xFF101216),
     surfaceContainerLowest = Color(0xFF0B0D10),
@@ -44,6 +60,29 @@ fun darkScheme() = darkColorScheme(
     surfaceContainer = Color(0xFF1A1E24),
     surfaceContainerHigh = Color(0xFF21262E),
     surfaceContainerHighest = Color(0xFF292F38)
+)
+
+/** Dark theme (default) - cool slate, lifted a step above pure black so
+ *  surfaces stay readable. Blue-shifted grays throughout, no warm/red tint. */
+fun darkScheme() = darkColorScheme(
+    primary = Color(0xFF64B5F6),
+    onPrimary = Color(0xFF0F2038),
+    primaryContainer = Color(0xFF01579B),
+    onPrimaryContainer = Color(0xFFD8EBFD),
+    secondary = Color(0xFF4DD0E1),
+    tertiary = Color(0xFF9D7CD8),
+    error = Color(0xFFE06C75),
+    background = Color(0xFF1B2129),
+    surface = Color(0xFF1B2129),
+    onBackground = Color(0xFFDFE6ED),
+    onSurface = Color(0xFFDFE6ED),
+    onSurfaceVariant = Color(0xFF8E99A5),
+    surfaceContainerLowest = Color(0xFF0F1319),
+    surfaceContainerLow = Color(0xFF161B22),
+    surfaceContainer = Color(0xFF1F252E),
+    surfaceContainerHigh = Color(0xFF29313B),
+    surfaceContainerHighest = Color(0xFF333D48),
+    outline = Color(0xFF475162)
 )
 
 /** Warm, slightly yellow light theme - bright but not glaring. */
@@ -75,6 +114,7 @@ fun lightGrayScheme() = lightColorScheme(
 
 fun baseScheme(theme: String): ColorScheme = when (theme) {
     AppTheme.AMOLED -> amoledScheme()
+    AppTheme.DARKER -> darkerScheme()
     AppTheme.SAND -> sandScheme()
     AppTheme.LIGHT -> lightGrayScheme()
     else -> darkScheme()
@@ -92,9 +132,14 @@ val CustomColorRoles = listOf(
     "terminal" to "Terminal"
 )
 
-/** Default output-console background: fixed dark on dark themes, theme surface on light ones. */
+/** Default output-console background. Dark theme uses a panel one step darker
+ *  than the app background (same cool hue family, not a near-black slab);
+ *  other dark themes keep the classic #0D1117 terminal, light themes follow
+ *  the theme surface. */
 fun defaultTerminalBg(theme: String, scheme: ColorScheme): Color =
-    if (AppTheme.isDark(theme)) Color(0xFF0D1117) else scheme.surfaceContainer
+    if (theme == AppTheme.DARK) scheme.surfaceContainerLow
+    else if (AppTheme.isDark(theme)) Color(0xFF0D1117)
+    else scheme.surfaceContainer
 
 /** Normalize "#rgb", "#rrggbb" or "#aarrggbb" to "#AARRGGBB", else null. */
 fun normalizeHex(input: String): String? {
