@@ -305,7 +305,15 @@ fun HomeScreen(
                 placeholder = { Text("Target (IP / host)") },
                 singleLine = true,
                 leadingIcon = {
-                    Icon(Icons.Filled.Search, contentDescription = null)
+                    if (state.target.isEmpty()) {
+                        Icon(Icons.Filled.Search, contentDescription = null)
+                    } else {
+                        // Clear doubles as the leading icon: no extra trailing
+                        // button; focus stays so the keyboard remains open.
+                        IconButton(onClick = { vm.setTarget("") }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear target")
+                        }
+                    }
                 },
                 trailingIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
