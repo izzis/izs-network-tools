@@ -40,7 +40,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Search
@@ -82,6 +84,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
@@ -93,6 +96,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.GlobalpingRunner
+import id.web.izs.nettools.core.LoopResult
 import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.DnsPresets
 import id.web.izs.nettools.model.GlobalpingCountries
@@ -147,8 +151,10 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     // Success markers.
     if (t.startsWith("OPEN") || t.startsWith("UP  ") ||
         t.startsWith("Trusted: yes") || t.contains("expires in", ignoreCase = true) ||
-        t.contains("Destination reached")
+        t.contains("Destination reached") || t.startsWith("No loop:")
     ) return p.green
+    // Loop verdicts: detected/suspected always stand out.
+    if (t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop")) return p.red
     // Warnings and bad states.
     if (t.startsWith("Trusted: NO") || t.contains("EXPIRED") ||
         t.contains("NOT YET VALID") || t.contains("NXDOMAIN", ignoreCase = true) ||
@@ -197,8 +203,13 @@ private fun OutputLine(line: String, colored: Boolean, p: TerminalPalette, fontS
         return
     }
     val kv = if (!line.contains('\t')) kvPattern.find(line) else null
-    if (kv != null && kv.groupValues[2].isNotEmpty() &&
-        !line.trimStart().startsWith(";;") && !line.trimStart().startsWith("==")
+    // Loop verdict lines keep their full semantic color (whole line green
+    // or red) instead of a dimmed "Key:" prefix — the verdict must pop.
+    val t = line.trimStart()
+    val isVerdict = t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
+        t.startsWith("No loop:")
+    if (!isVerdict && kv != null && kv.groupValues[2].isNotEmpty() &&
+        !t.startsWith(";;") && !t.startsWith("==")
     ) {
         Text(
             buildAnnotatedString {
@@ -490,6 +501,11 @@ fun HomeScreen(
                     else "Max ${state.settings.maxHops} hops - change in Settings (hold Trace for Global)"),
                     style = MaterialTheme.typography.bodySmall
                 )
+                // Loop verdict banner: pops in when the local trace finishes
+                // (or stops early on a proven loop). Hidden for Global traces.
+                if (!state.traceGlobal) {
+                    state.loopVerdict?.let { LoopVerdictBanner(it) }
+                }
             }
             if (state.tool == Tool.CERT) {
                 Text(
@@ -654,6 +670,69 @@ private fun TargetRow(
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+/**
+ * Loop verdict banner for the Trace tool. Red error card when a routing
+ * loop is proven, tertiary card when the trace ran full length without
+ * arriving. Clean traces stay console-only (no banner, no clutter).
+ * Hidden until the first verdict lands and for Global traces.
+ */
+@Composable
+private fun LoopVerdictBanner(verdict: LoopResult) {
+    // Clean trace: console text is enough, don't banner it.
+    if (verdict is LoopResult.NoLoop) return
+    val container: Color
+    val onContainer: Color
+    val icon: ImageVector
+    val title: String
+    val detail: String
+    when (verdict) {
+        is LoopResult.Loop -> {
+            container = MaterialTheme.colorScheme.errorContainer
+            onContainer = MaterialTheme.colorScheme.onErrorContainer
+            icon = Icons.Filled.Error
+            title = "Routing loop detected"
+            detail = verdict.message
+                .removePrefix("LOOP DETECTED: ")
+                .removeSuffix(" (routing loop suspected)")
+                .removeSuffix(" (routing loop confirmed)")
+        }
+        is LoopResult.Suspected -> {
+            container = MaterialTheme.colorScheme.tertiaryContainer
+            onContainer = MaterialTheme.colorScheme.onTertiaryContainer
+            icon = Icons.Filled.Warning
+            title = "Possible loop - destination never reached"
+            detail = verdict.message
+        }
+        is LoopResult.NoLoop -> return // Unreachable: filtered above.
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = container),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = onContainer)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = onContainer
+                )
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = onContainer
+                )
+            }
         }
     }
 }

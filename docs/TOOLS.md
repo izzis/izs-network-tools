@@ -21,6 +21,18 @@ through the privileged system `ping` binary.
 
 - Trace hops that stay silent print `*`. Consecutive duplicate IPs are
   annotated (`same as hop N, typical for anycast/MPLS`) — 8.8.8.8 does this.
+- Every trace ends with a loop verdict line in the console: `LOOP DETECTED`
+  (red) when an IP repeats non-consecutively or an A-B-A-B cycle appears,
+  `Suspected loop or filtering` (amber) when max hops is reached without
+  arriving, otherwise `No loop` (green). Only the two bad outcomes also
+  pop a banner above the console; clean traces stay text-only.
+  A *confirmed* loop stops the trace early: the same IP seen at 3+ TTLs,
+  an A-B cycle observed twice, or a tiny IP set dominating the run (a
+  looping packet can never arrive, further probes would just repeat the
+  cycle). A single repeat is suspicion only — the run continues and it
+  verdicts at the end instead of cutting the trace short. Clean traces run
+  on to the destination as before. Consecutive duplicates alone never flag
+  (anycast), and all-silent runs skip the verdict instead of crying wolf.
 - Probing stops at the first answer from the resolved destination IP.
 - If no hop answers, the output says why (ICMP blocked or TTL ignored).
 - Cert on non-TLS ports (SMTP/IMAP) fails honestly: they need STARTTLS.

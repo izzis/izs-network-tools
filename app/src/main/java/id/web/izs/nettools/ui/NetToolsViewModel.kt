@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.izs.nettools.core.CertChecker
 import id.web.izs.nettools.core.DnsRunner
+import id.web.izs.nettools.core.LoopDetector
+import id.web.izs.nettools.core.LoopResult
 import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.HttpHeadersFetcher
 import id.web.izs.nettools.core.IpScan
@@ -42,6 +44,7 @@ data class HomeUiState(
     val globalProbes: Int = 10,
     val globalCountry: String = "",
     val lines: List<String> = emptyList(),
+    val loopVerdict: LoopResult? = null,
     val running: Boolean = false,
     val progress: String? = null,
     val startedAt: Long = 0L,
@@ -85,7 +88,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setTool(t: Tool) {
-        _state.update { it.copy(tool = t) }
+        // Drop any stale loop banner: it belonged to the previous tool/target.
+        _state.update { it.copy(tool = t, loopVerdict = null) }
         // IP Scan: autofill the target bar with your own /24 network.
         if (t == Tool.SWEEP && _state.value.target.isBlank()) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -155,7 +159,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun clearOutput() = _state.update { it.copy(lines = emptyList()) }
+    fun clearOutput() = _state.update { it.copy(lines = emptyList(), loopVerdict = null) }
 
     fun bumpFont(deltaSp: Float) {
         val next = (_state.value.settings.outputFontSp + deltaSp).coerceIn(9f, 22f)
@@ -286,7 +290,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
         val header = "== ${st.tool.title} $headerTarget [via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
-        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
+        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
         if (st.tool != Tool.SWEEP && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
         // target bar, so it never overwrites; empty sweep keeps the old one.
@@ -312,6 +316,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
                 .collect { line ->
                     if (isEchoLine(st.tool, st, line)) return@collect
+                    // Local Trace verdict lines feed the loop banner above the console.
+                    val verdict = if (st.tool == Tool.TRACE && !st.traceGlobal) LoopDetector.verdictOfLine(line) else null
                     _state.update { cur ->
                         // Live-update lines ("key\ntext") replace the earlier
                         // line with the same key in place; plain lines append.
@@ -325,7 +331,10 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             cur.copy(lines = next.takeLast(2000))
                         } else {
-                            cur.copy(lines = (cur.lines + line).takeLast(2000))
+                            cur.copy(
+                                lines = (cur.lines + line).takeLast(2000),
+                                loopVerdict = verdict ?: cur.loopVerdict
+                            )
                         }
                     }
                 }
