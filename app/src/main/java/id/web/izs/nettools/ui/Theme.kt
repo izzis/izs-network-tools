@@ -101,15 +101,15 @@ fun sandScheme() = lightColorScheme(
     outline = Color(0xFF7C7667)
 )
 
-/** Light gray theme - never pure white. */
+/** Light gray theme - pure neutral gray, never pure white. */
 fun lightGrayScheme() = lightColorScheme(
-    background = Color(0xFFE5E7EB),
-    surface = Color(0xFFE5E7EB),
-    surfaceContainerLowest = Color(0xFFF0F1F4),
-    surfaceContainerLow = Color(0xFFDFE2E7),
-    surfaceContainer = Color(0xFFD8DCE1),
-    surfaceContainerHigh = Color(0xFFD0D4DA),
-    surfaceContainerHighest = Color(0xFFC7CCD3)
+    background = Color(0xFFE7E7E7),
+    surface = Color(0xFFE7E7E7),
+    surfaceContainerLowest = Color(0xFFF2F2F2),
+    surfaceContainerLow = Color(0xFFE1E1E1),
+    surfaceContainer = Color(0xFFD9D9D9),
+    surfaceContainerHigh = Color(0xFFCFCFCF),
+    surfaceContainerHighest = Color(0xFFC6C6C6)
 )
 
 fun baseScheme(theme: String): ColorScheme = when (theme) {
