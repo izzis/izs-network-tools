@@ -248,22 +248,35 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
         job?.cancel()
         val s = st.settings
+        // Port list parsed once: the count goes into the header, the list into the run.
+        val portList = PortChecker.parsePorts(s.portList)
         val backend = when (st.tool) {
             Tool.PING -> if (st.pingGlobal) "globalping x${st.globalProbes}" + globalWhere(st)
                 else "system ping " + (if (s.pingCount > 0) "x${s.pingCount}" else "nonstop")
-            Tool.DIG -> "dnsjava via ${s.dnsServer}"
+            Tool.DIG -> "dnsjava ${st.digType} via ${s.dnsServer}"
             Tool.TRACE -> if (st.traceGlobal) "globalping trace x${st.globalProbes}" + globalWhere(st)
                 else "system traceroute if present, else TTL-ping"
             Tool.WHOIS -> "RDAP + WHOIS port 43"
             Tool.IPINFO -> s.ipLookupBase
             Tool.MYIP -> s.myIpBase
-            Tool.PORTS -> if (st.portsGlobal) "internetdb" else "TCP connect"
+            Tool.PORTS -> if (st.portsGlobal) "internetdb"
+                else if (parsed.port != null) "TCP connect" else "TCP connect ${portList.size} ports"
             Tool.CERT -> "TLS handshake"
             Tool.HEADERS -> "HTTP GET"
             Tool.SWEEP -> "ping sweep"
         }
-        val headerTarget = if (st.tool == Tool.SWEEP) rawTarget.ifEmpty { "auto /24" }
-            else parsed.host.ifEmpty { "this device" }
+        // The blue "== ... ==" line is the single intro: it already carries tool,
+        // target, backend and time, so per-runner echo lines are dropped in collect().
+        // Heads-up extras that don't fit elsewhere are merged here: Dig record type
+        // (backend), port count (backend), Cert/Ports :port (target), full URL (Headers).
+        val portSuffix =
+            if ((st.tool == Tool.CERT || st.tool == Tool.PORTS) && parsed.port != null) ":${parsed.port}" else ""
+        val headerTarget = when (st.tool) {
+            Tool.SWEEP -> rawTarget.ifEmpty { "auto /24" }
+            Tool.HEADERS -> rawTarget.ifEmpty { "this device" }
+            Tool.MYIP -> "this device"
+            else -> parsed.host.ifEmpty { "this device" } + portSuffix
+        }
         val header = "== ${st.tool.title} $headerTarget [via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
         _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
@@ -280,7 +293,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.IPINFO -> IpInfoClient.lookup(parsed.host, s.ipLookupBase)
             Tool.MYIP -> IpInfoClient.lookup("", s.myIpBase)
             Tool.PORTS -> if (st.portsGlobal) InternetDbClient.lookup(parsed.host)
-                else PortChecker.check(parsed.host, parsed.port, s.timeoutMs, PortChecker.parsePorts(s.portList))
+                else PortChecker.check(parsed.host, parsed.port, s.timeoutMs, portList)
             Tool.CERT -> CertChecker.fetch(parsed.host, parsed.port ?: 443, s.timeoutMs)
             Tool.HEADERS -> HttpHeadersFetcher.fetch(rawTarget, s.timeoutMs)
             Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline)
@@ -288,6 +301,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
                 .collect { line ->
+                    if (isEchoLine(st.tool, st, line)) return@collect
                     _state.update { cur ->
                         // Live-update lines ("key\ntext") replace the earlier
                         // line with the same key in place; plain lines append.
@@ -310,6 +324,30 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun outputText(): String = _state.value.lines.joinToString("\n") { GlobalpingRunner.displayOf(it) }
+
+    /** Runner intro lines that only repeat what the blue "== ... ==" header
+     *  already says (tool + target + backend). Dropped so each run opens with
+     *  a single header line. Lines carrying unique info (resolved IPs, counts,
+     *  warnings, errors) never match and are kept. */
+    private fun isEchoLine(tool: Tool, st: HomeUiState, line: String): Boolean {
+        if (line.startsWith(GlobalpingRunner.LIVE)) return false
+        if ((tool == Tool.PING && st.pingGlobal) || (tool == Tool.TRACE && st.traceGlobal))
+            return line.startsWith(";; global ")
+        return when (tool) {
+            Tool.PING -> line.startsWith("PING ")
+            Tool.DIG -> line.startsWith("; DiG via ")
+            Tool.TRACE -> line.startsWith("traceroute to ")
+            Tool.WHOIS -> line.startsWith(";; whois/rdap for ")
+            Tool.IPINFO, Tool.MYIP -> line.startsWith(";; GET ") ||
+                line.startsWith(";; public IP of this device") ||
+                line.startsWith(";; note: this provider only")
+            Tool.HEADERS -> line.startsWith(";; HEADERS ")
+            Tool.PORTS -> !st.portsGlobal && line.startsWith(";; checking ")
+            Tool.CERT -> line.startsWith(";; TLS certificate for ")
+            Tool.SWEEP -> line.startsWith(";; IP scan on ")
+            else -> false
+        }
+    }
 
     private fun globalWhere(st: HomeUiState): String =
         if (st.globalCountry.isEmpty()) " worldwide" else " ${st.globalCountry}"
