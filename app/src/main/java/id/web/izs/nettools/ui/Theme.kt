@@ -16,8 +16,8 @@ object AppTheme {
 
     val presets = listOf(
         "AMOLED (pure black)" to AMOLED,
-        "Dark" to DARK,
         "Darker" to DARKER,
+        "Dark" to DARK,
         "Sand (warm light)" to SAND,
         "Light gray" to LIGHT
     )
@@ -137,7 +137,8 @@ val CustomColorRoles = listOf(
  *  other dark themes keep the classic #0D1117 terminal, light themes follow
  *  the theme surface. */
 fun defaultTerminalBg(theme: String, scheme: ColorScheme): Color =
-    if (theme == AppTheme.DARK) scheme.surfaceContainerLow
+    if (theme == AppTheme.AMOLED) Color.Black
+    else if (theme == AppTheme.DARK) scheme.surfaceContainerLow
     else if (AppTheme.isDark(theme)) Color(0xFF0D1117)
     else scheme.surfaceContainer
 
