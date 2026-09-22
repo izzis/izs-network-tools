@@ -25,11 +25,15 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      - name: Override version (optional)
-        if: inputs.version != ''
+      # versionName is manual (workflow input), versionCode follows the
+      # GitHub Actions run number so every CI build installs as an update.
+      - name: Override version
         run: |
-          sed -i -E 's/versionName = "[^"]+"/versionName = "${{ inputs.version }}"/' app/build.gradle.kts
-          grep -E 'versionName' app/build.gradle.kts
+          if [ -n "${{ inputs.version }}" ]; then
+            sed -i -E 's/versionName = "[^"]+"/versionName = "${{ inputs.version }}"/' app/build.gradle.kts
+          fi
+          sed -i -E "s/versionCode = [0-9]+/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
+          grep -E 'version(Code|Name)' app/build.gradle.kts
 
       - name: Resolve version
         id: ver
