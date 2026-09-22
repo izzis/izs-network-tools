@@ -159,6 +159,7 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     if (t.startsWith("Trusted: NO") || t.contains("EXPIRED") ||
         t.contains("NOT YET VALID") || t.contains("NXDOMAIN", ignoreCase = true) ||
         t.contains("unknown host", ignoreCase = true) ||
+        t.contains("unreachable", ignoreCase = true) ||
         t.contains("Request timeout", ignoreCase = true) ||
         t.contains("no answer yet", ignoreCase = true)
     ) return p.red
