@@ -345,7 +345,6 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.PORTS -> !st.portsGlobal && line.startsWith(";; checking ")
             Tool.CERT -> line.startsWith(";; TLS certificate for ")
             Tool.SWEEP -> line.startsWith(";; IP scan on ")
-            else -> false
         }
     }
 
