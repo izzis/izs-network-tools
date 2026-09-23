@@ -87,6 +87,22 @@ Root unlocks: ARP sweep (one packet per host, finds ICMP-blocking hosts,
 an order of magnitude faster on /24). Same range/CIDR parser; engine swap
 behind a root gate. High value for LAN-admin use.
 
+## Neighbor
+
+Rootless today: MNDP listen (UDP 5678 broadcast) — MikroTik-only, but finds
+devices that don't even have an IP yet — plus mDNS/Bonjour
+(`224.0.0.251:5353`: printers, casts, cameras) and SSDP/UPnP
+(`239.255.255.250:1900`: TVs, routers, NAS), all plain-UDP behind a WiFi
+multicast lock. That MikroTik-only boundary on the no-IP case is the
+protocol's, not ours: every vendor's "hello, I'm here" speaks a different
+tongue, and only MikroTik's is plain UDP a normal socket can hear.
+
+Root unlocks: CDP (Cisco) and LLDP (everyone) are pure-L2 EtherType frames —
+no IP, no UDP, only a raw socket hears them. Same for promiscuous sniffing
+(see *every* MAC, including silent ones) and MAC-table reads from the AP
+itself. A `NEIGHBOR (root)` mode would parse CDP/LLDP beside MNDP behind
+the same `[via …]` tag honesty.
+
 ## Cert
 
 Rootless today: direct TLS handshake — and that is already the whole job.

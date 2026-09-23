@@ -1,6 +1,6 @@
 # izs NetTools
 
-Simple but complete Android network tools. All 11 tools live on one
+Simple but complete Android network tools. All 12 tools live on one
 screen — no navigation, no fragments: a target bar on top, a two-row
 tool selector in the middle (tap a tool to run it), and a terminal-style
 output console below.
@@ -25,6 +25,7 @@ Package: `id.web.izs.nettools`
 | Cert      | TLS certificate viewer (subject, issuer, validity, SANs, SHA-256, trust status) |
 | Headers   | HTTP response headers with redirect chain |
 | IP Scan   | Ping scanner: single IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines + compact RTO ranges (offline lines optional, default off) |
+| Neighbor  | LAN neighbor discovery, no target needed: MikroTik (MNDP on UDP 5678, even without IP) + local services (mDNS) + UPnP devices (SSDP) |
 | Loop      | L2 broadcast-storm check on the LAN gateway + L3 routing-loop trace (empty = auto gateway, hold to pick L2/L3/Both) |
 
 Extras: saved favorites + recent targets (max configurable, default 5),

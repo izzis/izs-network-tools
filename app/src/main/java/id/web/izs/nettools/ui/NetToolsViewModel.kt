@@ -1,6 +1,8 @@
 package id.web.izs.nettools.ui
 
 import android.app.Application
+import android.content.Context
+import android.net.wifi.WifiManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.izs.nettools.core.CertChecker
@@ -15,6 +17,7 @@ import id.web.izs.nettools.core.HttpHeadersFetcher
 import id.web.izs.nettools.core.IpScan
 import id.web.izs.nettools.core.InternetDbClient
 import id.web.izs.nettools.core.IpInfoClient
+import id.web.izs.nettools.core.NeighborRunner
 import id.web.izs.nettools.core.PingRunner
 import id.web.izs.nettools.core.PortChecker
 import id.web.izs.nettools.core.TargetParser
@@ -259,17 +262,25 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(running = false, progress = null) }
     }
 
+    /** Best-effort WiFi handle for the Neighbor multicast phases; null = they proceed anyway. */
+    private fun wifiManager(): WifiManager? = try {
+        getApplication<Application>().applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+    } catch (_: Exception) {
+        null
+    }
+
     fun run() {
         val st = _state.value
         val rawTarget = st.target.trim()
-        // My IP, LAN sweep and Loop work without a target (Loop uses the gateway).
-        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.LOOP && rawTarget.isEmpty()) {
+        // My IP, LAN sweep, Neighbor and Loop work without a target
+        // (Loop uses the gateway, Neighbor just listens).
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && rawTarget.isEmpty()) {
             _state.update { it.copy(message = "Enter a target first (IP / host)") }
             return
         }
         if (st.running) return
         val parsed = TargetParser.parse(rawTarget)
-        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.LOOP && parsed.host.isEmpty()) {
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && parsed.host.isEmpty()) {
             _state.update { it.copy(message = "Invalid target") }
             return
         }
@@ -291,6 +302,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.CERT -> "TLS handshake"
             Tool.HEADERS -> "HTTP GET"
             Tool.SWEEP -> "ping sweep"
+            Tool.NEIGHBOR -> "mndp/mdns/ssdp"
             Tool.LOOP -> "loop " + when (st.loopMode) {
                 LoopRunner.LoopMode.L2_ONLY -> "L2 storm check"
                 LoopRunner.LoopMode.L3_ONLY -> "L3 loop trace"
@@ -305,6 +317,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             if ((st.tool == Tool.CERT || st.tool == Tool.PORTS) && parsed.port != null) ":${parsed.port}" else ""
         val headerTarget = when (st.tool) {
             Tool.SWEEP -> rawTarget.ifEmpty { "auto /24" }
+            Tool.NEIGHBOR -> "LAN broadcast"
             Tool.LOOP -> rawTarget.ifEmpty { "auto gateway" }
             Tool.HEADERS -> rawTarget.ifEmpty { "this device" }
             Tool.MYIP -> "this device"
@@ -333,6 +346,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.CERT -> CertChecker.fetch(parsed.host, parsed.port ?: 443, s.timeoutMs)
             Tool.HEADERS -> HttpHeadersFetcher.fetch(rawTarget, s.timeoutMs)
             Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline)
+            Tool.NEIGHBOR -> NeighborRunner.discover(wifiManager(), onProgress, s.timeoutMs)
             Tool.LOOP -> LoopRunner.run(rawTarget, st.loopMode, s.maxHops, s.timeoutMs, s.loopPingCount, onProgress)
         }
         job = viewModelScope.launch {
@@ -389,6 +403,9 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.PORTS -> !st.portsGlobal && line.startsWith(";; checking ")
             Tool.CERT -> line.startsWith(";; TLS certificate for ")
             Tool.SWEEP -> line.startsWith(";; IP scan on ")
+            Tool.NEIGHBOR -> line.startsWith(";; MNDP discovery ") ||
+                line.startsWith(";; mDNS discovery ") ||
+                line.startsWith(";; SSDP discovery ")
             Tool.LOOP -> false
         }
     }

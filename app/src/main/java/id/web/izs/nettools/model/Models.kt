@@ -64,7 +64,7 @@ data class AppSettings(
      *  missing from the list are appended in enum order (forward-compatible). */
     val toolOrder: List<String> = Tool.entries.map { it.name },
     /** Tools hidden from the home grid (Tool names). At least one must stay enabled. */
-    val disabledTools: Set<String> = setOf(Tool.HEADERS.name)
+    val disabledTools: Set<String> = setOf(Tool.HEADERS.name, Tool.CERT.name)
 )
 
 object IpInfoPresets {
@@ -153,6 +153,7 @@ enum class Tool(val title: String) {
     PORTS("Ports"),
     LOOP("Loop"),
     CERT("Cert"),
+    NEIGHBOR("Neighbor"),
     SWEEP("IP Scan");
 
     companion object {

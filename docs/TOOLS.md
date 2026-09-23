@@ -17,6 +17,7 @@ through the privileged system `ping` binary.
 | Headers | OkHttp GET with redirect chain, status, timing, all headers |
 | IP Scan | parallel `ping -c1` over IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines + compact RTO ranges (offline lines toggleable, default off) |
 | Loop | L2 storm check (gateway ping burst — count settable in Scan settings, default 10 — DUP/RTT/loss + `/proc/net/arp` flap + RX flood rate via TrafficStats, `/proc/net/dev` fallback) + L3 TTL-ping trace with confirmed-loop early-stop (empty target = auto gateway, hold for L2/L3/Both; L3 skipped when L2 already confirms a storm) |
+| Neighbor | three listen phases sharing the Scan timeout: MNDP refresh to `255.255.255.255:5678/udp` (MAC + identity + version + board + IP, `(no IP)` when the device has none) + mDNS service enumeration on `224.0.0.251:5353` + SSDP `M-SEARCH` on `239.255.255.250:1900`; needs no target and no local IP |
 
 ## Known rootless limits
 
@@ -63,6 +64,11 @@ through the privileged system `ping` binary.
   real-time source of truth.
 - Tool scope (Local vs Global) is per-session via long-press, default Local;
   all tool cells always show 2 lines so the grid stays uniform.
+- Neighbor only hears what announces itself: MikroTik via MNDP, anything
+  via mDNS/SSDP. Silent hosts and other vendors' APs stay invisible without
+  root (their CDP/LLDP are pure-L2 frames). Binding UDP :5678/:5353 fails
+  honestly if another listener holds the port; mDNS/SSDP need the WiFi
+  multicast lock (auto-held during the run).
 
 ## Output colors
 

@@ -542,6 +542,12 @@ fun HomeScreen(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+            if (state.tool == Tool.NEIGHBOR) {
+                Text(
+                    "Hears who's on the LAN: MikroTik (MNDP, even without IP), services (mDNS), devices (SSDP) - target field is ignored",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             if (state.tool == Tool.IPINFO) {
                 Text(
                     "Lookup any IP or domain - server from Settings",

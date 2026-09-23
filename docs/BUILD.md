@@ -36,5 +36,6 @@ Needs: Gradle ≥ 9.6.0, JDK 17, build-tools 36.0.0 (all satisfied here).
 
 Debug builds use the default debug key. For Play uploads, add a signing
 config + `targetSdk 36` already meets the Aug 2026 Play requirement.
-No special permissions beyond `INTERNET`, `ACCESS_NETWORK_STATE`,
-`ACCESS_WIFI_STATE`.
+Permissions: `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`,
+plus `CHANGE_WIFI_MULTICAST_STATE` (normal, auto-granted — lets mDNS/SSDP
+multicast reach the app for the Neighbor tool).

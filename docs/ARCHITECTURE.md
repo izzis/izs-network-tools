@@ -62,8 +62,8 @@ Rules learned the hard way:
 - `saved_hosts` (JSON list of `SavedHost`), `recent_hosts` (capped by `max_recent`, default 5)
 - Settings auto-save with 600 ms debounce; flushed on back navigation.
 - Tool grid order/visibility (`tool_order`, `disabled_tools`) follows the
-  `Tool` enum order by default with Headers off: top row Ping–My IP, bottom
-  row Trace, Ports, Loop, Cert, IP Scan (5+5). The split is dynamic
+  `Tool` enum order by default with Headers + Cert off: top row Ping–My IP,
+  bottom row Trace, Ports, Loop, Neighbor, IP Scan (5+5). The split is dynamic
   (`half = (n+1)/2`) — no hardcoded row size, no placeholder cells.
   Loop mode (L2/L3/Both) is per-session state, not persisted — same as
   the Ping/Trace/Ports scopes.
