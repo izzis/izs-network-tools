@@ -7,6 +7,9 @@ import id.web.izs.nettools.core.CertChecker
 import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.LoopDetector
 import id.web.izs.nettools.core.LoopResult
+import id.web.izs.nettools.core.LoopRunner
+import id.web.izs.nettools.core.StormDetector
+import id.web.izs.nettools.core.StormResult
 import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.HttpHeadersFetcher
 import id.web.izs.nettools.core.IpScan
@@ -22,6 +25,7 @@ import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.SavedHost
 import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
+import id.web.izs.nettools.model.orderedEnabledTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +49,8 @@ data class HomeUiState(
     val globalCountry: String = "",
     val lines: List<String> = emptyList(),
     val loopVerdict: LoopResult? = null,
+    val stormVerdict: StormResult? = null,
+    val loopMode: LoopRunner.LoopMode = LoopRunner.LoopMode.BOTH,
     val running: Boolean = false,
     val progress: String? = null,
     val startedAt: Long = 0L,
@@ -66,7 +72,15 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { repo.settings.collect { s ->
-            _state.update { it.copy(settings = s, settingsLoaded = true) }
+            _state.update { cur ->
+                val next = cur.copy(settings = s, settingsLoaded = true)
+                // The active tool may have just been disabled in Settings:
+                // fall back to the first enabled tool instead of stranding the UI.
+                if (next.tool.name in s.disabledTools) {
+                    val fallback = s.orderedEnabledTools().firstOrNull() ?: Tool.PING
+                    next.copy(tool = fallback, loopVerdict = null, stormVerdict = null)
+                } else next
+            }
             // Shrink a legacy long recent list to the current limit.
             repo.trimRecent(s.maxRecent)
         } }
@@ -89,7 +103,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTool(t: Tool) {
         // Drop any stale loop banner: it belonged to the previous tool/target.
-        _state.update { it.copy(tool = t, loopVerdict = null) }
+        _state.update { it.copy(tool = t, loopVerdict = null, stormVerdict = null) }
         // IP Scan: autofill the target bar with your own /24 network.
         if (t == Tool.SWEEP && _state.value.target.isBlank()) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -100,14 +114,16 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Tap a tool = run it immediately (except IP Scan: too heavy to trigger
-     *  by accident, it needs an explicit Run press). Tapping again re-runs. */
+    /** Tap a tool = run it immediately (except IP Scan and Loop: too heavy
+     *  to trigger by accident, they need an explicit Run press). Tapping again re-runs. */
     fun selectAndRun(t: Tool) {
         if (_state.value.running) return
         setTool(t)
-        if (t == Tool.SWEEP) return
+        if (t == Tool.SWEEP || t == Tool.LOOP) return
         run()
     }
+    /** Loop detection mode (hold the Loop tool to change). Per-session, like scopes. */
+    fun setLoopMode(m: LoopRunner.LoopMode) = _state.update { it.copy(loopMode = m) }
     fun setDigType(t: String) {
         _state.update { it.copy(digType = t) }
         // Switching record type re-runs Dig immediately, no need to tap again.
@@ -159,7 +175,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun clearOutput() = _state.update { it.copy(lines = emptyList(), loopVerdict = null) }
+    fun clearOutput() = _state.update { it.copy(lines = emptyList(), loopVerdict = null, stormVerdict = null) }
 
     fun bumpFont(deltaSp: Float) {
         val next = (_state.value.settings.outputFontSp + deltaSp).coerceIn(9f, 22f)
@@ -246,14 +262,14 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun run() {
         val st = _state.value
         val rawTarget = st.target.trim()
-        // My IP and LAN sweep work without a target.
-        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && rawTarget.isEmpty()) {
+        // My IP, LAN sweep and Loop work without a target (Loop uses the gateway).
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.LOOP && rawTarget.isEmpty()) {
             _state.update { it.copy(message = "Enter a target first (IP / host)") }
             return
         }
         if (st.running) return
         val parsed = TargetParser.parse(rawTarget)
-        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && parsed.host.isEmpty()) {
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.LOOP && parsed.host.isEmpty()) {
             _state.update { it.copy(message = "Invalid target") }
             return
         }
@@ -275,6 +291,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.CERT -> "TLS handshake"
             Tool.HEADERS -> "HTTP GET"
             Tool.SWEEP -> "ping sweep"
+            Tool.LOOP -> "loop " + when (st.loopMode) {
+                LoopRunner.LoopMode.L2_ONLY -> "L2 storm check"
+                LoopRunner.LoopMode.L3_ONLY -> "L3 loop trace"
+                LoopRunner.LoopMode.BOTH -> "L2+L3"
+            }
         }
         // The blue "== ... ==" line is the single intro: it already carries tool,
         // target, backend and time, so per-runner echo lines are dropped in collect().
@@ -284,13 +305,14 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             if ((st.tool == Tool.CERT || st.tool == Tool.PORTS) && parsed.port != null) ":${parsed.port}" else ""
         val headerTarget = when (st.tool) {
             Tool.SWEEP -> rawTarget.ifEmpty { "auto /24" }
+            Tool.LOOP -> rawTarget.ifEmpty { "auto gateway" }
             Tool.HEADERS -> rawTarget.ifEmpty { "this device" }
             Tool.MYIP -> "this device"
             else -> parsed.host.ifEmpty { "this device" } + portSuffix
         }
         val header = "== ${st.tool.title} $headerTarget [via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
-        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
+        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
         if (st.tool != Tool.SWEEP && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
         // target bar, so it never overwrites; empty sweep keeps the old one.
@@ -311,13 +333,15 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.CERT -> CertChecker.fetch(parsed.host, parsed.port ?: 443, s.timeoutMs)
             Tool.HEADERS -> HttpHeadersFetcher.fetch(rawTarget, s.timeoutMs)
             Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline)
+            Tool.LOOP -> LoopRunner.run(rawTarget, st.loopMode, s.maxHops, s.timeoutMs, s.loopPingCount, onProgress)
         }
         job = viewModelScope.launch {
             flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
                 .collect { line ->
                     if (isEchoLine(st.tool, st, line)) return@collect
-                    // Local Trace verdict lines feed the loop banner above the console.
-                    val verdict = if (st.tool == Tool.TRACE && !st.traceGlobal) LoopDetector.verdictOfLine(line) else null
+                    // Loop verdict lines feed the banners above the console.
+                    val loopVerdict = if (st.tool == Tool.LOOP) LoopDetector.verdictOfLine(line) else null
+                    val stormVerdict = if (st.tool == Tool.LOOP) StormDetector.verdictOfLine(line) else null
                     _state.update { cur ->
                         // Live-update lines ("key\ntext") replace the earlier
                         // line with the same key in place; plain lines append.
@@ -333,7 +357,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                         } else {
                             cur.copy(
                                 lines = (cur.lines + line).takeLast(2000),
-                                loopVerdict = verdict ?: cur.loopVerdict
+                                loopVerdict = loopVerdict ?: cur.loopVerdict,
+                                stormVerdict = stormVerdict ?: cur.stormVerdict
                             )
                         }
                     }
@@ -364,6 +389,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.PORTS -> !st.portsGlobal && line.startsWith(";; checking ")
             Tool.CERT -> line.startsWith(";; TLS certificate for ")
             Tool.SWEEP -> line.startsWith(";; IP scan on ")
+            Tool.LOOP -> false
         }
     }
 

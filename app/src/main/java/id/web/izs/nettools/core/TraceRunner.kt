@@ -14,6 +14,10 @@ import java.util.concurrent.TimeUnit
  * Traceroute without root: TTL-limited ping probes per hop.
  * On Android, unprivileged ICMP goes through the ping binary, which is enough
  * to discover hops that answer "Time exceeded".
+ *
+ * Pure traceroute only: no loop verdict, no early-stop on loops. Loop
+ * analysis (L2 storm + L3 routing loop) lives in LoopRunner, which reuses
+ * [probe] as its per-TTL primitive.
  */
 object TraceRunner {
 
@@ -109,25 +113,8 @@ object TraceRunner {
     ): Flow<String> = flow {
         if (ExecUtil.exists("traceroute")) {
             emit("traceroute to $host [backend: system traceroute binary]")
-            val destIp = resolveIp(host)
-            val hops = mutableListOf<HopInfo>()
-            var ttl = 0
             ExecUtil.stream("traceroute", "-n", "-m", maxHops.toString(), "-w", "2", host)
-                .collect { line ->
-                    emit(line)
-                    if (line.trim().matches(Regex("""\d+.*"""))) {
-                        // Count every hop row (answered or silent) so the
-                        // verdict sees the same length the user sees.
-                        ttl++
-                        hops.add(HopInfo(ttl, parseBinaryHopLine(line), null, null, false))
-                    }
-                }
-            if (hops.any { it.ip != null }) {
-                val destReached = destIp != null && hops.lastOrNull { it.ip != null }?.ip == destIp
-                emit(LoopDetector.verdictLine(LoopDetector.analyze(hops, destReached, maxHops)))
-            } else {
-                emit("Note: loop check skipped (no parseable hop IPs in binary output).")
-            }
+                .collect { line -> emit(line) }
             return@flow
         }
         if (!ExecUtil.pingAvailable()) {
@@ -139,9 +126,6 @@ object TraceRunner {
         emit("traceroute to $host [TTL-ping: no binary, dest ${destIp ?: "unresolved"}, silent hops show *]")
         var prevIp: String? = null
         var resolved = 0
-        val hops = mutableListOf<HopInfo>()
-        var destReachedRun = false
-        var loopStopped = false
         for (ttl in 1..maxHops) {
             onProgress?.invoke("Probing hop $ttl/$maxHops...")
             val h = probe(host, ttl)
@@ -149,10 +133,8 @@ object TraceRunner {
                 emit("ERROR: failed to run ping for hop $ttl.")
                 break
             }
-            hops.add(h)
             if (h.ip != null) resolved++
             val arrived = h.reached || (destIp != null && h.ip == destIp)
-            if (arrived) destReachedRun = true
             val line = if (!arrived && h.ip != null && h.ip == prevIp) {
                 "${formatHop(h)}  [same as hop ${ttl - 1}, typical for anycast/MPLS]"
             } else {
@@ -164,25 +146,11 @@ object TraceRunner {
                 emit("Destination reached in $ttl hops. Stopping.")
                 break
             }
-            // Loop confirmed mid-run: stop now, further probes would just
-            // repeat the cycle. Mere suspicion (a single repeat) never
-            // stops the run — it needs a second confirmation first.
-            if (h.ip != null) {
-                val confirmed = LoopDetector.detectConfirmed(hops)
-                if (confirmed != null) {
-                    emit(LoopDetector.verdictLine(confirmed))
-                    emit("Note: stopping early, loop confirmed at hop $ttl (further probes would repeat the cycle).")
-                    loopStopped = true
-                    break
-                }
-            }
             if (ttl == maxHops) emit("Max hops reached.")
         }
         if (resolved == 0) {
             emit("Note: no hop answered. The destination may block ICMP, or this")
             emit("device's ping may ignore the TTL flag.")
-        } else if (!loopStopped) {
-            emit(LoopDetector.verdictLine(LoopDetector.analyze(hops, destReachedRun, maxHops)))
         }
     }.flowOn(Dispatchers.IO)
 }

@@ -14,7 +14,12 @@ app/src/main/java/id/web/izs/nettools/
     ExecUtil.kt          binary detection (/system/bin/ping, traceroute)
     PingRunner.kt        system ping binary, streamed via callbackFlow
     DnsRunner.kt         dnsjava lookup + system fallback
-    TraceRunner.kt       TTL-ping probes, destination-IP stop, dupe notes
+    TraceRunner.kt       pure traceroute: TTL-ping probes, destination-IP stop, dupe notes
+    LoopDetector.kt      pure L3 routing-loop analysis (used by LoopRunner)
+    StormDetector.kt     pure L2 storm analysis over gateway ping + ARP samples
+    ArpWatcher.kt        /proc/net/arp parsing + MAC-flap detection
+    GatewayResolver.kt   default gateway via /proc/net/route, .1-guess fallback
+    LoopRunner.kt        Loop tool: L2 storm phase + L3 trace phase (early-stop), L2/L3/Both mode
     WhoisRdapClient.kt   RDAP-first, WHOIS/43 fallback + referrals
     IpInfoClient.kt      generic JSON IP-info client (geo + IP-only)
     PortChecker.kt       parallel TCP connect, list/range parser
@@ -24,7 +29,7 @@ app/src/main/java/id/web/izs/nettools/
   ui/
     NetToolsViewModel.kt tool dispatch, progress, save/recents
     HomeScreen.kt        target bar, picker, 2-row selector, terminal
-    SettingsScreen.kt    tabbed settings (Servers/Whois/Scan/General)
+    SettingsScreen.kt    tabbed settings (Servers/Whois/Scan/Tools/General)
     ManageHostsScreen.kt saved-host CRUD + search
     ColorsScreen.kt      per-section custom colors (swatches + hex)
     Theme.kt             AMOLED / Dark / Sand / Light gray + overrides
@@ -52,6 +57,13 @@ Rules learned the hard way:
 `SettingsRepository` over Preferences DataStore (`izs_nettools`):
 
 - `AppSettings` (servers, hops, timeout, port list, parallel probes,
-  auto-run switches, font size, max recent, theme, custom colors, schemes)
+  auto-run switches, font size, max recent, theme, custom colors, schemes,
+  tool order + disabled tools)
 - `saved_hosts` (JSON list of `SavedHost`), `recent_hosts` (capped by `max_recent`, default 5)
 - Settings auto-save with 600 ms debounce; flushed on back navigation.
+- Tool grid order/visibility (`tool_order`, `disabled_tools`) follows the
+  `Tool` enum order by default with Headers off: top row Ping–My IP, bottom
+  row Trace, Ports, Loop, Cert, IP Scan (5+5). The split is dynamic
+  (`half = (n+1)/2`) — no hardcoded row size, no placeholder cells.
+  Loop mode (L2/L3/Both) is per-session state, not persisted — same as
+  the Ping/Trace/Ports scopes.

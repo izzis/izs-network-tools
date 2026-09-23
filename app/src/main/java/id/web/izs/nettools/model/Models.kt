@@ -45,6 +45,8 @@ data class AppSettings(
     val portList: String = "21 22 25 53 80 110 143 443 465 587 993 995 3306 8080 8443",
     val maxParallel: Int = 32,
     val pingCount: Int = 4,
+    /** Gateway ping burst length for the Loop L2 phase (~1 packet/sec). */
+    val loopPingCount: Int = 10,
     val scanShowOffline: Boolean = false,
     val autoRunOnPick: Boolean = false,
     val autoRunOnTool: Boolean = false,
@@ -57,7 +59,12 @@ data class AppSettings(
     val maxRecent: Int = 5,
     val customColors: Map<String, String> = emptyMap(),
     val colorSchemes: Map<String, Map<String, String>> = emptyMap(),
-    val schemeName: String = ""
+    val schemeName: String = "",
+    /** Home tool grid order (Tool names). Unknown entries are ignored; tools
+     *  missing from the list are appended in enum order (forward-compatible). */
+    val toolOrder: List<String> = Tool.entries.map { it.name },
+    /** Tools hidden from the home grid (Tool names). At least one must stay enabled. */
+    val disabledTools: Set<String> = setOf(Tool.HEADERS.name)
 )
 
 object IpInfoPresets {
@@ -141,11 +148,23 @@ enum class Tool(val title: String) {
     WHOIS("Whois"),
     IPINFO("IP Info"),
     MYIP("My IP"),
+    HEADERS("Headers"),
     TRACE("Trace"),
     PORTS("Ports"),
+    LOOP("Loop"),
     CERT("Cert"),
-    HEADERS("Headers"),
-    SWEEP("IP Scan")
+    SWEEP("IP Scan");
+
+    companion object {
+        fun of(name: String): Tool? = try { valueOf(name) } catch (_: Exception) { null }
+    }
+}
+
+/** Home-grid tools after applying the user's order + enable/disable settings. */
+fun AppSettings.orderedEnabledTools(): List<Tool> {
+    val order = toolOrder.mapNotNull { Tool.of(it) }
+    val missing = Tool.entries.filter { it !in order }
+    return (order + missing).filter { it.name !in disabledTools }
 }
 
 data class HopInfo(

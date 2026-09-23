@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.DropdownMenu
@@ -34,6 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +61,7 @@ import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.DnsPresets
 import id.web.izs.nettools.model.IpInfoPresets
 import id.web.izs.nettools.model.RdapPresets
+import id.web.izs.nettools.model.Tool
 import id.web.izs.nettools.model.WhoisPresets
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -199,7 +203,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
     val scope = rememberCoroutineScope()
     var s by remember(state.settings) { mutableStateOf(state.settings) }
     var dirty by remember { mutableStateOf(false) }
-    val tabs = listOf("Servers", "Whois", "Scan", "General")
+    val tabs = listOf("Servers", "Whois", "Scan", "Tools", "General")
     val pagerState = rememberPagerState { tabs.size }
 
     // Auto-save (debounced): covers top-left back, system back gesture/button.
@@ -288,6 +292,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                         0 -> ServersTab(s, ::update)
                         1 -> WhoisTab(s, ::update)
                         2 -> ScanTab(s, ::update)
+                        3 -> ToolsTab(s, ::update)
                         else -> GeneralTab(s, ::update, onOpenColors)
                     }
                 }
@@ -405,6 +410,12 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
         label = "Ping count (0 = nonstop)",
         onCommit = { update(s.copy(pingCount = it)) }
     )
+    NumberField(
+        value = s.loopPingCount,
+        range = 4..100,
+        label = "Loop: gateway ping count (4-100, ~1/sec)",
+        onCommit = { update(s.copy(loopPingCount = it)) }
+    )
             var portsText by remember(s.portList) { mutableStateOf(s.portList) }
             fun syncPorts() {
                 val t = portsText.filter { c -> c.isDigit() || c in ",; \n\t-" }
@@ -430,6 +441,90 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
     ) {
         Text("Show offline hosts in IP Scan (RTO)")
         Switch(checked = s.scanShowOffline, onCheckedChange = { update(s.copy(scanShowOffline = it)) })
+    }
+}
+
+@Composable
+private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
+    // Display order mirrors the home grid: stored order first, then any tool
+    // missing from it (forward-compatible with newly added tools).
+    val ordered = remember(s.toolOrder) {
+        val known = s.toolOrder.mapNotNull { Tool.of(it) }
+        known + Tool.entries.filter { it !in known }
+    }
+    val enabledCount = ordered.count { it.name !in s.disabledTools }
+    Text(
+        "Pick which tools show on Home and in what order. At least one must stay on.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    ordered.forEachIndexed { i, t ->
+        val enabled = t.name !in s.disabledTools
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                t.title,
+                modifier = Modifier.weight(1f),
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            IconButton(
+                onClick = {
+                    val next = ordered.toMutableList()
+                    next[i] = next[i - 1]
+                    next[i - 1] = t
+                    update(s.copy(toolOrder = next.map { it.name }))
+                },
+                enabled = i > 0
+            ) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move ${t.title} up")
+            }
+            IconButton(
+                onClick = {
+                    val next = ordered.toMutableList()
+                    next[i] = next[i + 1]
+                    next[i + 1] = t
+                    update(s.copy(toolOrder = next.map { it.name }))
+                },
+                enabled = i < ordered.lastIndex
+            ) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move ${t.title} down")
+            }
+            Switch(
+                checked = enabled,
+                // Refuse to switch off the last enabled tool: an empty grid
+                // would strand the Home screen with nothing to run.
+                onCheckedChange = { on ->
+                    if (!on && enabledCount <= 1) return@Switch
+                    update(
+                        s.copy(
+                            disabledTools = if (on) s.disabledTools - t.name
+                            else s.disabledTools + t.name
+                        )
+                    )
+                }
+            )
+        }
+    }
+    Row(
+        horizontalArrangement = Arrangement.End,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        TextButton(
+            onClick = {
+                update(
+                    s.copy(
+                        toolOrder = Tool.entries.map { it.name },
+                        disabledTools = AppSettings().disabledTools
+                    )
+                )
+            }
+        ) {
+            Text("Reset tool order")
+        }
     }
 }
 

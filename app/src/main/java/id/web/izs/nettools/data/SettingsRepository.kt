@@ -34,6 +34,7 @@ class SettingsRepository(private val context: Context) {
         val PORTS = stringPreferencesKey("port_list")
         val MAXPARALLEL = intPreferencesKey("max_parallel")
         val PINGCOUNT = intPreferencesKey("ping_count")
+        val LOOPPINGCOUNT = intPreferencesKey("loop_ping_count")
         val SCANOFFLINE = intPreferencesKey("scan_show_offline")
         val AUTORUN = intPreferencesKey("autorun")
         val AUTORUN_TOOL = intPreferencesKey("autorun_tool")
@@ -50,6 +51,8 @@ class SettingsRepository(private val context: Context) {
         val SAVED = stringPreferencesKey("saved_hosts")
         val RECENT = stringPreferencesKey("recent_hosts")
         val LAST_TARGET = stringPreferencesKey("last_target")
+        val TOOL_ORDER = stringPreferencesKey("tool_order")
+        val DISABLED_TOOLS = stringPreferencesKey("disabled_tools")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -69,6 +72,7 @@ class SettingsRepository(private val context: Context) {
             portList = p[K.PORTS] ?: AppSettings().portList,
             maxParallel = p[K.MAXPARALLEL] ?: AppSettings().maxParallel,
             pingCount = p[K.PINGCOUNT] ?: AppSettings().pingCount,
+            loopPingCount = p[K.LOOPPINGCOUNT] ?: AppSettings().loopPingCount,
             scanShowOffline = (p[K.SCANOFFLINE] ?: 0) == 1,
             autoRunOnPick = (p[K.AUTORUN] ?: 0) == 1,
             autoRunOnTool = (p[K.AUTORUN_TOOL] ?: 0) == 1,
@@ -81,7 +85,9 @@ class SettingsRepository(private val context: Context) {
             theme = p[K.THEME] ?: AppSettings().theme,
             customColors = decodeColors(p[K.COLORS]),
             colorSchemes = decodeSchemes(p[K.SCHEMES]),
-            schemeName = p[K.SCHEME_NAME] ?: ""
+            schemeName = p[K.SCHEME_NAME] ?: "",
+            toolOrder = decodeStrings(p[K.TOOL_ORDER], AppSettings().toolOrder),
+            disabledTools = decodeStrings(p[K.DISABLED_TOOLS], AppSettings().disabledTools.toList()).toSet()
         )
     }
 
@@ -100,6 +106,7 @@ class SettingsRepository(private val context: Context) {
             p[K.PORTS] = s.portList
             p[K.MAXPARALLEL] = s.maxParallel
             p[K.PINGCOUNT] = s.pingCount
+            p[K.LOOPPINGCOUNT] = s.loopPingCount
             p[K.SCANOFFLINE] = if (s.scanShowOffline) 1 else 0
             p[K.AUTORUN] = if (s.autoRunOnPick) 1 else 0
             p[K.AUTORUN_TOOL] = if (s.autoRunOnTool) 1 else 0
@@ -113,6 +120,8 @@ class SettingsRepository(private val context: Context) {
             p[K.COLORS] = json.encodeToString(s.customColors)
             p[K.SCHEMES] = json.encodeToString(s.colorSchemes)
             p[K.SCHEME_NAME] = s.schemeName
+            p[K.TOOL_ORDER] = json.encodeToString(s.toolOrder)
+            p[K.DISABLED_TOOLS] = json.encodeToString(s.disabledTools.toList())
         }
     }
 
@@ -152,6 +161,15 @@ class SettingsRepository(private val context: Context) {
             json.decodeFromString<Map<String, Map<String, String>>>(s)
         } catch (_: Exception) {
             emptyMap()
+        }
+    }
+
+    private fun decodeStrings(s: String?, fallback: List<String>): List<String> {
+        if (s.isNullOrBlank()) return fallback
+        return try {
+            json.decodeFromString<List<String>>(s)
+        } catch (_: Exception) {
+            fallback
         }
     }
 

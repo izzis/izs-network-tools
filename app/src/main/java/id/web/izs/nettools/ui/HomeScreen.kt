@@ -97,6 +97,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.LoopResult
+import id.web.izs.nettools.core.LoopRunner
+import id.web.izs.nettools.core.StormResult
 import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.DnsPresets
 import id.web.izs.nettools.model.GlobalpingCountries
@@ -104,6 +106,7 @@ import id.web.izs.nettools.model.IpInfoPresets
 import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
 import id.web.izs.nettools.model.WhoisPresets
+import id.web.izs.nettools.model.orderedEnabledTools
 import id.web.izs.nettools.model.sortedFor
 
 /** Console palette. Dark themes keep the classic dark terminal; light themes
@@ -151,10 +154,13 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     // Success markers.
     if (t.startsWith("OPEN") || t.startsWith("UP  ") ||
         t.startsWith("Trusted: yes") || t.contains("expires in", ignoreCase = true) ||
-        t.contains("Destination reached") || t.startsWith("No loop:")
+        t.contains("Destination reached") || t.startsWith("No loop:") ||
+        t.startsWith("No storm:")
     ) return p.green
     // Loop verdicts: detected/suspected always stand out.
-    if (t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop")) return p.red
+    if (t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
+        t.startsWith("STORM DETECTED") || t.startsWith("Suspected storm")
+    ) return p.red
     // Warnings and bad states.
     if (t.startsWith("Trusted: NO") || t.contains("EXPIRED") ||
         t.contains("NOT YET VALID") || t.contains("NXDOMAIN", ignoreCase = true) ||
@@ -208,7 +214,8 @@ private fun OutputLine(line: String, colored: Boolean, p: TerminalPalette, fontS
     // or red) instead of a dimmed "Key:" prefix — the verdict must pop.
     val t = line.trimStart()
     val isVerdict = t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
-        t.startsWith("No loop:")
+        t.startsWith("No loop:") || t.startsWith("STORM DETECTED") ||
+        t.startsWith("Suspected storm") || t.startsWith("No storm:")
     if (!isVerdict && kv != null && kv.groupValues[2].isNotEmpty() &&
         !t.startsWith(";;") && !t.startsWith("==")
     ) {
@@ -420,10 +427,11 @@ fun HomeScreen(
             }
 
             // --- Tool selector: exactly 2 rows, divider-separated, no boxes.
-            // Tap = select (+ auto-run when enabled, except IP Scan).
-            // Long-press a server tool = change its server.
+            // Tap = select (+ auto-run when enabled, except IP Scan and Loop).
+            // Long-press a server tool = change its server; hold Loop = pick mode.
             var serverTool by remember { mutableStateOf<Tool?>(null) }
             var scopeTool by remember { mutableStateOf<Tool?>(null) }
+            var loopModeTool by remember { mutableStateOf<Tool?>(null) }
             ToolSelector(
                 selected = state.tool,
                 enabled = !state.running,
@@ -433,6 +441,7 @@ fun HomeScreen(
                         Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
                         Tool.TRACE -> if (state.traceGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
                         Tool.PORTS -> if (state.portsGlobal) "Global" else "Local"
+                        Tool.LOOP -> state.loopMode.sub
                         else -> null
                     }
                 },
@@ -441,6 +450,7 @@ fun HomeScreen(
                     when {
                         toolServerSlot(t, state.settings) != null -> serverTool = t
                         t == Tool.PING || t == Tool.TRACE || t == Tool.PORTS -> scopeTool = t
+                        t == Tool.LOOP -> loopModeTool = t
                     }
                 }
             )
@@ -478,6 +488,13 @@ fun HomeScreen(
                     onDismiss = { scopeTool = null }
                 )
             }
+            loopModeTool?.let {
+                LoopModePickerDialog(
+                    current = state.loopMode,
+                    onSave = { vm.setLoopMode(it) },
+                    onDismiss = { loopModeTool = null }
+                )
+            }
             // --- Contextual options ---
             if (state.tool == Tool.DIG) {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -502,11 +519,16 @@ fun HomeScreen(
                     else "Max ${state.settings.maxHops} hops - change in Settings (hold Trace for Global)"),
                     style = MaterialTheme.typography.bodySmall
                 )
-                // Loop verdict banner: pops in when the local trace finishes
-                // (or stops early on a proven loop). Hidden for Global traces.
-                if (!state.traceGlobal) {
-                    state.loopVerdict?.let { LoopVerdictBanner(it) }
-                }
+            }
+            if (state.tool == Tool.LOOP) {
+                Text(
+                    "Empty target = auto gateway (L2 storm + L3 trace, max ${state.settings.maxHops} hops) - or type a host/IP to trace L3 there (hold Loop for L2/L3/Both)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                // Verdict banners: pop in when the Loop run finishes (or stops
+                // early on a proven L3 loop). Clean runs stay console-only.
+                state.stormVerdict?.let { StormVerdictBanner(it) }
+                state.loopVerdict?.let { LoopVerdictBanner(it) }
             }
             if (state.tool == Tool.CERT) {
                 Text(
@@ -568,11 +590,11 @@ fun HomeScreen(
                                     color = if (state.running) term.green else term.text
                                 )
                             }
-                            // Scan progress, numbers only (e.g. 25/254), IP Scan only.
+                            // Scan/Loop progress, numbers only (e.g. 25/254), plus
                             // Global progress (e.g. 3/10 probes) while a global run is live.
                             val isGlobalRun = (state.tool == Tool.PING && state.pingGlobal) ||
                                 (state.tool == Tool.TRACE && state.traceGlobal)
-                            if (state.tool == Tool.SWEEP || (isGlobalRun && state.running)) {
+                            if (state.tool == Tool.SWEEP || state.tool == Tool.LOOP || (isGlobalRun && state.running)) {
                                 state.progress?.let {
                                     val nums = Regex("""\d+/\d+""").find(it)?.value ?: it
                                     Spacer(Modifier.width(8.dp))
@@ -676,10 +698,10 @@ private fun TargetRow(
 }
 
 /**
- * Loop verdict banner for the Trace tool. Red error card when a routing
+ * Loop verdict banner for the Loop tool (L3 phase). Red error card when a routing
  * loop is proven, tertiary card when the trace ran full length without
  * arriving. Clean traces stay console-only (no banner, no clutter).
- * Hidden until the first verdict lands and for Global traces.
+ * Hidden until the first verdict lands.
  */
 @Composable
 private fun LoopVerdictBanner(verdict: LoopResult) {
@@ -739,6 +761,70 @@ private fun LoopVerdictBanner(verdict: LoopResult) {
 }
 
 /**
+ * Storm verdict banner for the Loop tool (L2 phase). Red error card on a
+ * detected broadcast storm, tertiary card on suspicion. Clean gateways stay
+ * console-only (no banner, no clutter).
+ */
+@Composable
+private fun StormVerdictBanner(verdict: StormResult) {
+    // Clean gateway: console text is enough, don't banner it.
+    if (verdict is StormResult.NoStorm) return
+    val container: Color
+    val onContainer: Color
+    val icon: ImageVector
+    val title: String
+    val detail: String
+    when (verdict) {
+        is StormResult.Storm -> {
+            container = MaterialTheme.colorScheme.errorContainer
+            onContainer = MaterialTheme.colorScheme.onErrorContainer
+            icon = Icons.Filled.Error
+            title = "Broadcast storm detected"
+            detail = verdict.message
+                .removePrefix("STORM DETECTED: ")
+                .removeSuffix(" (frames circulating — L2 loop suspected)")
+                .removeSuffix(" (broadcast storm suspected)")
+                .removeSuffix(" (replies drowned by a flood — L2 loop suspected)")
+                .removeSuffix(" (L2 loop suspected)")
+        }
+        is StormResult.Suspected -> {
+            container = MaterialTheme.colorScheme.tertiaryContainer
+            onContainer = MaterialTheme.colorScheme.onTertiaryContainer
+            icon = Icons.Filled.Warning
+            title = "Possible storm - gateway looks off"
+            detail = verdict.message
+        }
+        is StormResult.NoStorm -> return // Unreachable: filtered above.
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = container),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = onContainer)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = onContainer
+                )
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = onContainer
+                )
+            }
+        }
+    }
+}
+
+/**
  * Tool selector: always exactly 2 rows, items separated by thin divider
  * lines — no boxes, no chips. Tap = run immediately.
  * Long-press a server-backed tool (Dig/Whois/IP Info/My IP) = change server.
@@ -752,7 +838,8 @@ private fun ToolSelector(
     onSelect: (Tool) -> Unit,
     onLongPress: (Tool) -> Unit
 ) {
-    val tools = Tool.entries
+    val tools = settings.orderedEnabledTools()
+    if (tools.isEmpty()) return
     val half = (tools.size + 1) / 2
     Column(modifier = Modifier.fillMaxWidth()) {
         ToolSelectorRow(tools.take(half), selected, enabled, settings, extraSub, onSelect, onLongPress)
@@ -832,7 +919,7 @@ private fun ToolSelectorRow(
                         maxLines = 1
                     )
                     // Every cell always renders the subtitle line (nbsp placeholder
-                    // when none) so all 10 buttons stay uniformly 2 lines tall.
+                    // when none) so all buttons stay uniformly 2 lines tall.
                     Text(
                         server ?: "\u00A0",
                         style = MaterialTheme.typography.bodySmall,
@@ -962,6 +1049,56 @@ private fun ScopePickerDialog(
         }
     )
 }
+/** Long-press dialog for Loop: which half of the loop check to run.
+ *  Per-session (like the Ping/Trace/Ports scope), default L2+L3. */
+@Composable
+private fun LoopModePickerDialog(
+    current: LoopRunner.LoopMode,
+    onSave: (LoopRunner.LoopMode) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var picked by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Loop: detection mode") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                LoopRunner.LoopMode.entries.forEach { m ->
+                    val hint = when (m) {
+                        LoopRunner.LoopMode.BOTH -> "Gateway storm check + trace (default)"
+                        LoopRunner.LoopMode.L2_ONLY -> "Gateway storm check only (fast)"
+                        LoopRunner.LoopMode.L3_ONLY -> "Routing-loop trace only"
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { picked = m }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = picked == m, onClick = { picked = m })
+                        Column {
+                            Text(m.title, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                hint,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(picked); onDismiss() }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
 @Composable
 private fun ServerPickerDialog(
     tool: Tool,
