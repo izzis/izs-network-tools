@@ -49,7 +49,8 @@ through the privileged system `ping` binary.
   silent with plain timeouts = suspected (honestly ambiguous). True L2
   detection (STP/BPDU sniffing, switch MAC tables)
   needs raw sockets and is impossible without root — Loop reports storm
-  *symptoms* honestly labeled as such.
+  *symptoms* honestly labeled as such. What root (or SNMP/Shizuku) would
+  unlock is tracked in [ROOT-ROADMAP.md](ROOT-ROADMAP.md).
 - Probing stops at the first answer from the resolved destination IP.
 - If no hop answers, the output says why (ICMP blocked or TTL ignored).
 - Cert on non-TLS ports (SMTP/IMAP) fails honestly: they need STARTTLS.
