@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.MulticastSocket
 
@@ -171,6 +172,50 @@ object MdnsDiscover {
     }
 
     fun formatHost(host: String, ip: String) = "MDNS $host $ip"
+
+    /**
+     * Ask one host directly for its name (unicast, QU bit — no multicast
+     * lock needed, no broadcast heard). Sends the service queries straight
+     * to [ip]:5353 and returns the first hostname that resolves back to
+     * that same IP. Strict on purpose: a service *type* is not a name, so
+     * anything that doesn't map to [ip] is ignored instead of displayed.
+     * Null = silent / no mDNS / blocked. Used per host by IP Scan.
+     */
+    fun queryHost(ip: String, timeoutMs: Int = 600, port: Int = PORT): String? = try {
+        DatagramSocket().use { s ->
+            val budget = timeoutMs.coerceIn(200, 2000)
+            s.soTimeout = 500
+            val addr = InetAddress.getByName(ip)
+            for (q in QUERIES) {
+                try {
+                    val qb = buildQuery(q)
+                    s.send(DatagramPacket(qb, qb.size, addr, port))
+                } catch (_: Exception) {
+                }
+            }
+            val deadline = System.currentTimeMillis() + budget
+            val buf = ByteArray(9000)
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    val pkt = DatagramPacket(buf, buf.size)
+                    s.receive(pkt)
+                    val parsed = parseMessage(pkt.data, pkt.length)
+                    for (sv in parsed.services) {
+                        if (sv.ip == ip) return sv.host ?: sv.instance
+                    }
+                    for ((h, hip) in parsed.hosts) {
+                        if (hip == ip) return h
+                    }
+                } catch (_: java.net.SocketTimeoutException) {
+                } catch (_: Exception) {
+                    break
+                }
+            }
+            null
+        }
+    } catch (_: Exception) {
+        null
+    }
 
     private fun buildQuery(name: String): ByteArray {
         val labels = name.split(".").map { it.toByteArray(Charsets.UTF_8) }

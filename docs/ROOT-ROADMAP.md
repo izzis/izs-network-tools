@@ -80,8 +80,12 @@ Same `PortChecker.parsePorts()` list format; only the engine changes, tagged
 
 ## IP Scan
 
-Rootless today: parallel `ping -c1` sweep. Costs: a process spawn per host
-(~254 for a /24), and hosts that block ICMP are invisible even when alive.
+Rootless today: parallel `ping -c1` sweep, UP lines annotated with neighbor
+MACs from `/proc/net/arp` (`[gw]` on the gateway) and Windows hostnames via
+NetBIOS (UDP 137) when reverse DNS is blank. Costs: a process spawn
+per host (~254 for a /24), hosts that block ICMP are invisible even when
+alive, and `/proc/net/arp` itself is unreadable on some modern ROMs (the
+sweep then says so and skips the MAC column instead of faking it).
 
 Root unlocks: ARP sweep (one packet per host, finds ICMP-blocking hosts,
 an order of magnitude faster on /24). Same range/CIDR parser; engine swap

@@ -48,6 +48,8 @@ data class AppSettings(
     /** Gateway ping burst length for the Loop L2 phase (~1 packet/sec). */
     val loopPingCount: Int = 10,
     val scanShowOffline: Boolean = false,
+    /** Show neighbor MAC (+[gw]) in IP Scan UP lines. Off = IP + hostname only. */
+    val scanShowMac: Boolean = false,
     val autoRunOnPick: Boolean = false,
     val autoRunOnTool: Boolean = false,
     val autoClearOutput: Boolean = true,

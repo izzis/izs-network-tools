@@ -442,6 +442,14 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
         Text("Show offline hosts in IP Scan (RTO)")
         Switch(checked = s.scanShowOffline, onCheckedChange = { update(s.copy(scanShowOffline = it)) })
     }
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Show MAC in IP Scan UP lines")
+        Switch(checked = s.scanShowMac, onCheckedChange = { update(s.copy(scanShowMac = it)) })
+    }
 }
 
 @Composable

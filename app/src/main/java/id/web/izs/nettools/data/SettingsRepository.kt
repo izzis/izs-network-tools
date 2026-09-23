@@ -36,6 +36,7 @@ class SettingsRepository(private val context: Context) {
         val PINGCOUNT = intPreferencesKey("ping_count")
         val LOOPPINGCOUNT = intPreferencesKey("loop_ping_count")
         val SCANOFFLINE = intPreferencesKey("scan_show_offline")
+        val SCANMAC = intPreferencesKey("scan_show_mac")
         val AUTORUN = intPreferencesKey("autorun")
         val AUTORUN_TOOL = intPreferencesKey("autorun_tool")
         val AUTOCLEAR = intPreferencesKey("autoclear_output")
@@ -74,6 +75,7 @@ class SettingsRepository(private val context: Context) {
             pingCount = p[K.PINGCOUNT] ?: AppSettings().pingCount,
             loopPingCount = p[K.LOOPPINGCOUNT] ?: AppSettings().loopPingCount,
             scanShowOffline = (p[K.SCANOFFLINE] ?: 0) == 1,
+            scanShowMac = (p[K.SCANMAC] ?: 0) == 1,
             autoRunOnPick = (p[K.AUTORUN] ?: 0) == 1,
             autoRunOnTool = (p[K.AUTORUN_TOOL] ?: 0) == 1,
             autoClearOutput = (p[K.AUTOCLEAR] ?: 1) == 1,
@@ -108,6 +110,7 @@ class SettingsRepository(private val context: Context) {
             p[K.PINGCOUNT] = s.pingCount
             p[K.LOOPPINGCOUNT] = s.loopPingCount
             p[K.SCANOFFLINE] = if (s.scanShowOffline) 1 else 0
+            p[K.SCANMAC] = if (s.scanShowMac) 1 else 0
             p[K.AUTORUN] = if (s.autoRunOnPick) 1 else 0
             p[K.AUTORUN_TOOL] = if (s.autoRunOnTool) 1 else 0
             p[K.AUTOCLEAR] = if (s.autoClearOutput) 1 else 0

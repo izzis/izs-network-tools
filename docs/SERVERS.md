@@ -34,6 +34,7 @@ was ignored. Plain-text (non-JSON) answers are shown raw.
 
 Max hops (1–64), timeout ms (500–30000), WHOIS port, parallel probes
 for IP Scan (8–256, default 32), show-offline-hosts toggle for IP Scan
-(RTO ranges, default off), and the port list (`22,80,8000-8010`:
-commas/spaces/new lines separate, `-` is an inclusive range, capped
-at 1000 with an honest note).
+(RTO ranges, default off), show-MAC toggle for IP Scan UP lines
+(default off — off means IP + hostname only), and the port list
+(`22,80,8000-8010`: commas/spaces/new lines separate, `-` is an
+inclusive range, capped at 1000 with an honest note).

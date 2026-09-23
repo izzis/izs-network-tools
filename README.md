@@ -24,7 +24,7 @@ Package: `id.web.izs.nettools`
 | Ports     | TCP port scan from a configurable list (single ports + `8000-8010` ranges) |
 | Cert      | TLS certificate viewer (subject, issuer, validity, SANs, SHA-256, trust status) |
 | Headers   | HTTP response headers with redirect chain |
-| IP Scan   | Ping scanner: single IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines + compact RTO ranges (offline lines optional, default off) |
+| IP Scan   | Ping scanner: single IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines with IP + hostname (MAC + `[gw]` optional via Scan setting, default off) + compact RTO ranges (offline lines optional, default off) |
 | Neighbor  | LAN neighbor discovery, no target needed: MikroTik (MNDP on UDP 5678, even without IP) + local services (mDNS) + UPnP devices (SSDP) |
 | Loop      | L2 broadcast-storm check on the LAN gateway + L3 routing-loop trace (empty = auto gateway, hold to pick L2/L3/Both) |
 

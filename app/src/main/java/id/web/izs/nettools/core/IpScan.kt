@@ -20,6 +20,10 @@ import java.util.concurrent.atomic.AtomicInteger
  * Universal ping scanner without root: single IP, last-octet range
  * (192.168.1.1-50), or CIDR (/24 down to /32). Empty target sweeps
  * the device's own /24. Results stream live as hosts answer.
+ *
+ * UP lines carry the neighbor MAC from `/proc/net/arp` (a successful ping
+ * always leaves an ARP entry, so the lookup is reliable) plus a `[gw]` flag
+ * on the default gateway — which for WiFi clients is the AP itself.
  */
 object IpScan {
 
@@ -76,6 +80,14 @@ object IpScan {
                 null
             }
         }
+    }
+
+    /** Pure UP-line formatter (unit-testable): neighbor MAC + gateway flag. */
+    fun formatUp(ip: String, name: String?, rtt: String, mac: String?, isGateway: Boolean): String {
+        val label = if (name != null) " ($name)" else ""
+        val macPart = if (mac != null) "  [$mac]" else ""
+        val gwPart = if (isGateway) "  [gw]" else ""
+        return "UP  $ip$label  $rtt$macPart$gwPart"
     }
 
     data class Parsed(val hosts: List<String>, val label: String)
@@ -164,7 +176,10 @@ object IpScan {
         timeoutMs: Int,
         onProgress: ((String) -> Unit)? = null,
         maxParallel: Int = DEFAULT_PARALLEL,
-        showOffline: Boolean = false
+        showOffline: Boolean = false,
+        showMac: Boolean = false,
+        /** Active network's DNS servers for explicit PTR (bypasses Private DNS). */
+        dnsServers: List<String> = emptyList()
     ): Flow<String> =
         callbackFlow {
             if (!ExecUtil.pingAvailable()) {
@@ -189,9 +204,11 @@ object IpScan {
                 close()
                 return@callbackFlow
             }
-            trySend(";; IP scan on ${parsed.label} [backend: ping -c1, no root]")
+            trySend(";; IP scan on ${parsed.label} [backend: ping -c1 + NetBIOS${if (showMac) " + ARP" else ""}, no root]")
             if (own != null) trySend(";; this device: ${own.ip}/${own.prefix}")
             if (skippedOwn.isNotEmpty()) trySend(";; skipping own IP (${skippedOwn.joinToString(",")})")
+            val gatewayIp = if (showMac) GatewayResolver.resolve()?.ip else null
+            if (showMac && ArpWatcher.read() == null) trySend(";; note: /proc/net/arp unreadable — UP lines carry no MAC")
             trySend(";; pinging ${targets.size} hosts...\n")
             val done = AtomicInteger(0)
             val found = AtomicInteger(0)
@@ -211,8 +228,13 @@ object IpScan {
                                             found.incrementAndGet()
                                             noReply.remove(ip)
                                             val name = reverseDns(ip)
-                                            val label = if (name != null) " ($name)" else ""
-                                            trySend("UP  $ip$label  $rtt")
+                                                ?: DnsPtr.query(ip, dnsServers)
+                                                ?: NetBios.queryName(ip)
+                                                ?: MdnsDiscover.queryHost(ip)
+                                            // An answered ping always leaves an ARP entry,
+                                            // so the MAC lookup right after is reliable.
+                                            val mac = if (showMac) ArpWatcher.read()?.get(ip)?.takeIf { it.complete }?.mac else null
+                                            trySend(formatUp(ip, name, rtt, mac, showMac && ip == gatewayIp))
                                         }
                                         val d = done.incrementAndGet()
                                         if (d % 25 == 0 || d == targets.size) {

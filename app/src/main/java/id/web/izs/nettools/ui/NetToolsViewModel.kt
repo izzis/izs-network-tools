@@ -2,6 +2,7 @@ package id.web.izs.nettools.ui
 
 import android.app.Application
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -269,6 +270,16 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         null
     }
 
+    /** DNS servers of the active network, for explicit LAN PTR lookups. */
+    private fun dnsServers(): List<String> = try {
+        val cm = getApplication<Application>().applicationContext
+            .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        cm?.getLinkProperties(cm.activeNetwork)?.dnsServers
+            ?.mapNotNull { it.hostAddress }?.filter { it.isNotEmpty() } ?: emptyList()
+    } catch (_: Exception) {
+        emptyList()
+    }
+
     fun run() {
         val st = _state.value
         val rawTarget = st.target.trim()
@@ -345,7 +356,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 else PortChecker.check(parsed.host, parsed.port, s.timeoutMs, portList)
             Tool.CERT -> CertChecker.fetch(parsed.host, parsed.port ?: 443, s.timeoutMs)
             Tool.HEADERS -> HttpHeadersFetcher.fetch(rawTarget, s.timeoutMs)
-            Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline)
+            Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline, s.scanShowMac, dnsServers())
             Tool.NEIGHBOR -> NeighborRunner.discover(wifiManager(), onProgress, s.timeoutMs)
             Tool.LOOP -> LoopRunner.run(rawTarget, st.loopMode, s.maxHops, s.timeoutMs, s.loopPingCount, onProgress)
         }
