@@ -224,7 +224,7 @@ private val wifiMacLine = Regex("^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\\b.*")
 
 /**
  * One output line: semantic color + dim key / bright value for "Key: value" lines.
- * WiFi AP blocks (SSID\\nMAC…) get a bright title row and a dim detail row so
+ * WiFi AP blocks (SSID\\nMAC…) get a bright title row and a same-color detail row so
  * consecutive APs read as separate groups instead of one wall of text.
  */
 @Composable
@@ -247,24 +247,31 @@ private fun OutputLine(
                 fontFamily = FontFamily.Monospace,
                 fontSize = fontSize
             )
-            // WiFi AP block: line 1 = SSID/signal, line 2 = MAC/ch/band (dim).
+            // WiFi AP block: line 1 = SSID/signal/(gone)/(filter), line 2 = MAC/ch/width/band/sec/802.11.
             // Connected AP: line 1 is green instead of the usual semantic color.
+            // (gone)/(filter) rows dim BOTH lines so inactive APs recede.
             line.indexOf('\n').let { nl ->
                 nl > 0 && wifiMacLine.matches(line.substring(nl + 1).trim())
             } -> {
                 val nl = line.indexOf('\n')
-                val mac = line.substring(nl + 1).trim().substringBefore(' ')
-                val titleColor = if (
-                    wifiConnBssid.isNotEmpty() && mac.equals(wifiConnBssid, true)
-                ) p.green else terminalLineColor(line.substring(0, nl), p)
+                val head = line.substring(0, nl)
+                val tail = line.substring(nl + 1)
+                val inactive = head.contains("(gone)") || head.contains("(filter)")
+                val mac = tail.trim().substringBefore(' ')
+                val titleColor = when {
+                    inactive -> p.dim
+                    wifiConnBssid.isNotEmpty() && mac.equals(wifiConnBssid, true) -> p.green
+                    else -> terminalLineColor(head, p)
+                }
+                val detailColor = if (inactive) p.dim else p.text
                 Text(
                     buildAnnotatedString {
                         withStyle(SpanStyle(color = titleColor)) {
-                            append(line.substring(0, nl))
+                            append(head)
                         }
                         append('\n')
-                        withStyle(SpanStyle(color = p.dim)) {
-                            append(line.substring(nl + 1))
+                        withStyle(SpanStyle(color = detailColor)) {
+                            append(tail)
                         }
                     },
                     fontFamily = FontFamily.Monospace,
@@ -305,7 +312,7 @@ private fun OutputLine(
         }
     }
     if (bottomSpacer) {
-        Column(Modifier.padding(bottom = 10.dp)) { body() }
+        Column(Modifier.padding(bottom = 12.dp)) { body() }
     } else {
         body()
     }

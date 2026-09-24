@@ -15,9 +15,10 @@ class WifiAnalyzerRunnerTest {
         security: String = "WPA2",
         connected: Boolean = false,
         centerFreq: Int = 0,
-        widthMhz: Int = 20
+        widthMhz: Int = 20,
+        standard: String = ""
     ) = WifiAnalyzerRunner.ApInfo(
-        bssid, ssid, rssi, freq, security, connected, centerFreq, widthMhz
+        bssid, ssid, rssi, freq, security, connected, centerFreq, widthMhz, standard
     )
 
     // --- band / channel ---
@@ -55,6 +56,31 @@ class WifiAnalyzerRunnerTest {
         assertEquals("WEP", WifiAnalyzerRunner.securityOf("[WEP]"))
         assertEquals("open", WifiAnalyzerRunner.securityOf("[ESS]"))
         assertEquals("open", WifiAnalyzerRunner.securityOf(""))
+    }
+
+    // --- Wi-Fi standard (ScanResult.wifiStandard, API 30+) ---
+
+    @Test
+    fun standardFromWifiStandardId() {
+        assertEquals("", WifiAnalyzerRunner.standardOf(0))
+        assertEquals("802.11a/b/g", WifiAnalyzerRunner.standardOf(1))
+        assertEquals("802.11n", WifiAnalyzerRunner.standardOf(4))
+        assertEquals("802.11ac", WifiAnalyzerRunner.standardOf(5))
+        assertEquals("802.11ax", WifiAnalyzerRunner.standardOf(6))
+        assertEquals("802.11ad", WifiAnalyzerRunner.standardOf(7))
+        assertEquals("802.11be", WifiAnalyzerRunner.standardOf(8))
+        assertEquals("", WifiAnalyzerRunner.standardOf(99))
+    }
+
+    @Test
+    fun widthMhzFromChannelWidth() {
+        assertEquals(20, WifiAnalyzerRunner.widthMhzOf(0))
+        assertEquals(40, WifiAnalyzerRunner.widthMhzOf(1))
+        assertEquals(80, WifiAnalyzerRunner.widthMhzOf(2))
+        assertEquals(160, WifiAnalyzerRunner.widthMhzOf(3))
+        assertEquals(160, WifiAnalyzerRunner.widthMhzOf(4))
+        assertEquals(320, WifiAnalyzerRunner.widthMhzOf(5))
+        assertEquals(20, WifiAnalyzerRunner.widthMhzOf(-1))
     }
 
     // --- filters (free text = SSID OR MAC; chips are AND) ---
@@ -333,15 +359,61 @@ class WifiAnalyzerRunnerTest {
         assertTrue(line1.contains("~")) // FSPL distance estimate
         assertTrue(line1.contains("m"))
         assertFalse(line1.endsWith("*"))
-        // line 2: MAC · ch · band · sec (no indent)
+        // line 2: MAC · ch · width · band · sec · 802.11 (no indent)
         assertFalse(line2.startsWith(" "))
         assertTrue(line2.startsWith("aa:bb:cc:dd:ee:ff"))
         assertTrue(line2.contains("ch  6"))
+        assertTrue(line2.contains("20MHz"))
         assertTrue(line2.contains("2.4G"))
         assertTrue(line2.contains("WPA2"))
 
-        val gone = WifiAnalyzerRunner.formatAp(ap(), gone = true)
-        assertTrue(gone.endsWith("(gone)"))
+        // (gone)/(filter) ride on the SSID line, not the MAC line
+        val goneBlock = WifiAnalyzerRunner.formatAp(ap(), gone = true)
+        val (gone1, gone2) = goneBlock.split("\n", limit = 2)
+        assertTrue(gone1.contains("(gone)"))
+        assertTrue(gone1.endsWith("(gone)"))
+        assertFalse(gone2.contains("(gone)"))
+
+        val filterBlock = WifiAnalyzerRunner.formatAp(ap(), filter = true)
+        val (f1, f2) = filterBlock.split("\n", limit = 2)
+        assertTrue(f1.contains("(filter)"))
+        assertTrue(f1.endsWith("(filter)"))
+        assertFalse(f2.contains("(filter)"))
+    }
+
+    @Test
+    fun formatShowsWidthAndStandardWhenKnown() {
+        val block = WifiAnalyzerRunner.formatAp(
+            ap(freq = 2432, widthMhz = 40, standard = "802.11ax")
+        )
+        val line2 = block.split("\n", limit = 2)[1]
+        assertTrue(line2.contains("40MHz"))
+        assertTrue(line2.contains("802.11ax"))
+        // unknown standard → field omitted (no dangling spaces before end/mark)
+        val noStd = WifiAnalyzerRunner.formatAp(ap(standard = ""))
+        assertFalse(noStd.split("\n", limit = 2)[1].contains("802.11"))
+    }
+
+    @Test
+    fun formatLine2ColumnsStayAligned() {
+        // Wide channel width must not glue to the band; band/sec columns
+        // must start at the same offset with or without a standard.
+        val wide = WifiAnalyzerRunner.formatAp(
+            ap(bssid = "aa:aa:aa:aa:aa:01", freq = 5180, widthMhz = 160, standard = "802.11ac")
+        ).split("\n", limit = 2)[1]
+        val narrow = WifiAnalyzerRunner.formatAp(
+            ap(bssid = "aa:aa:aa:aa:aa:02", freq = 2437, widthMhz = 20, standard = "")
+        ).split("\n", limit = 2)[1]
+        // band starts right after the fixed 17+2+5+2+7 column prefix
+        val bandCol = 17 + 2 + 5 + 2 + 7
+        assertTrue(wide.substring(bandCol).startsWith("5G"))
+        assertTrue(narrow.substring(bandCol).startsWith("2.4G"))
+        // space between MHz and band on the 160 MHz row
+        assertTrue(wide.substring(0, bandCol).endsWith("160MHz "))
+        // standard sits after padded security (4) + two spaces
+        assertTrue(wide.substring(bandCol + 6 + 4).startsWith("  802.11ac"))
+        assertFalse(narrow.contains("802.11"))
+        assertTrue(narrow.trimEnd().endsWith("WPA2"))
     }
 
     @Test

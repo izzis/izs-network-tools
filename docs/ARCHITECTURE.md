@@ -60,6 +60,12 @@ Rules learned the hard way:
   auto-run switches, font size, max recent, theme, custom colors, schemes,
   tool order + disabled tools)
 - `saved_hosts` (JSON list of `SavedHost`), `recent_hosts` (capped by `max_recent`, default 5)
+- Target bar slots: `last_target` (host tools — shared, written on run and on
+  clear-to-empty) and `wifi_filter` (WiFi Analyzer SSID/MAC only). Switching
+  between WiFi and any host tool swaps the bar contents; each clear overwrites
+  only its own key so reopen never resurrects the other tool's text.
+- `last_tool` restores the selected tool with the matching slot above (select
+  only, never auto-run).
 - Settings auto-save with 600 ms debounce; flushed on back navigation.
 - Tool grid order/visibility (`tool_order`, `disabled_tools`) follows the
   `Tool` enum order by default with Headers + Cert off: top row Ping–My IP,

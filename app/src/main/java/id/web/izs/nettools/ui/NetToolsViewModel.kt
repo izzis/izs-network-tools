@@ -100,6 +100,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
     private var job: Job? = null
 
+    /** Session mirror of the host-tool target bar (DataStore `last_target`). */
+    private var hostTarget: String = ""
+    /** Session mirror of the WiFi Analyzer SSID/MAC filter (`wifi_filter`). */
+    private var wifiTarget: String = ""
+
     init {
         viewModelScope.launch { repo.settings.collect { s ->
             _state.update { cur ->
@@ -116,45 +121,87 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         } }
         viewModelScope.launch { repo.savedHosts.collect { l -> _state.update { it.copy(saved = l) } } }
         viewModelScope.launch { repo.recentHosts.collect { l -> _state.update { it.copy(recent = l) } } }
-        // Restore the last ran target once at startup. Fresh install has none,
-        // so the bar stays empty; never overwrite text the user already typed.
+        // Restore last tool + the matching target-bar slot in one step (host
+        // tools share last_target; WiFi has its own filter — never cross-load).
         viewModelScope.launch {
-            val last = repo.lastTarget.first()
-            if (last.isNotEmpty() && _state.value.target.isEmpty()) setTarget(last)
+            val settings = repo.settings.first()
+            hostTarget = repo.lastTarget.first()
+            wifiTarget = repo.wifiFilter.first()
+            val t = Tool.of(repo.lastTool.first())
+            val tool = if (t != null && t.name !in settings.disabledTools) t else Tool.PING
+            val bar = if (tool == Tool.WIFIANALYZER) wifiTarget else hostTarget
+            _state.update {
+                it.copy(
+                    tool = tool,
+                    target = bar,
+                    loopVerdict = null,
+                    stormVerdict = null,
+                    isTargetSaved = bar.isNotEmpty() && repo.isSaved(bar)
+                )
+            }
         }
         // Restore the last Band multi-select (e.g. 2.4+5 only, no 6 GHz).
         viewModelScope.launch {
             val bands = repo.wifiBands.first()
             _state.update { it.copy(wifiBand = bands) }
         }
-        // Restore the last selected tool — select only, never auto-run.
-        // If it was since disabled in Settings, keep the current tool and let
-        // the settings collector above fall back to the first enabled one.
-        viewModelScope.launch {
-            val t = Tool.of(repo.lastTool.first()) ?: return@launch
-            _state.update { cur ->
-                if (t.name in cur.settings.disabledTools) cur
-                else cur.copy(tool = t, loopVerdict = null, stormVerdict = null)
-            }
-        }
     }
 
     fun setTarget(v: String) {
         _state.update { it.copy(target = v, message = null) }
+        val tool = _state.value.tool
+        if (tool == Tool.WIFIANALYZER) {
+            // Filter is live for the scan; persist every edit so clear sticks.
+            wifiTarget = v.trim()
+            viewModelScope.launch { repo.saveWifiFilter(wifiTarget) }
+        } else {
+            hostTarget = v.trim()
+            // Empty clear must overwrite last_target or reopen resurrects it.
+            if (v.isEmpty()) viewModelScope.launch { repo.saveLastTarget("") }
+        }
         viewModelScope.launch {
             _state.update { it.copy(isTargetSaved = repo.isSaved(v)) }
         }
     }
 
     fun setTool(t: Tool) {
+        val prev = _state.value.tool
+        val leavingWifi = prev == Tool.WIFIANALYZER && t != Tool.WIFIANALYZER
+        val enteringWifi = prev != Tool.WIFIANALYZER && t == Tool.WIFIANALYZER
+        // Swap target-bar slots: outgoing tool's text goes to its own key,
+        // incoming tool's saved text fills the bar (empty on fresh install).
+        if (leavingWifi) {
+            wifiTarget = _state.value.target.trim()
+            viewModelScope.launch { repo.saveWifiFilter(wifiTarget) }
+        } else if (enteringWifi) {
+            hostTarget = _state.value.target.trim()
+            viewModelScope.launch { repo.saveLastTarget(hostTarget) }
+        }
+        val bar = if (t == Tool.WIFIANALYZER) wifiTarget else hostTarget
         // Drop any stale loop banner: it belonged to the previous tool/target.
-        _state.update { it.copy(tool = t, loopVerdict = null, stormVerdict = null, dropExpanded = false) }
-        viewModelScope.launch { repo.saveLastTool(t.name) }
+        _state.update {
+            it.copy(
+                tool = t,
+                target = bar,
+                loopVerdict = null,
+                stormVerdict = null,
+                dropExpanded = false
+            )
+        }
+        viewModelScope.launch {
+            repo.saveLastTool(t.name)
+            _state.update { it.copy(isTargetSaved = bar.isNotEmpty() && repo.isSaved(bar)) }
+        }
         // IP Scan: autofill the target bar with your own /24 network.
-        if (t == Tool.SWEEP && _state.value.target.isBlank()) {
+        if (t == Tool.SWEEP && bar.isBlank()) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 IpScan.ownNetwork()?.let { own ->
-                    _state.update { s -> if (s.target.isBlank()) s.copy(target = "${own.base24}.0/24") else s }
+                    _state.update { s ->
+                        if (s.tool == Tool.SWEEP && s.target.isBlank()) {
+                            hostTarget = "${own.base24}.0/24"
+                            s.copy(target = hostTarget)
+                        } else s
+                    }
                 }
             }
         }
@@ -478,8 +525,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         if (st.tool != Tool.SWEEP && st.tool != Tool.WIFIANALYZER && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
         // target bar, so it never overwrites; empty sweep keeps the old one;
-        // WiFi SSID/MAC filter is session-only (not a host).
-        if (st.tool != Tool.MYIP && st.tool != Tool.WIFIANALYZER && rawTarget.isNotEmpty()) viewModelScope.launch { repo.saveLastTarget(rawTarget) }
+        // WiFi SSID/MAC filter lives in wifi_filter (saved in setTarget/setTool).
+        if (st.tool != Tool.MYIP && st.tool != Tool.WIFIANALYZER && rawTarget.isNotEmpty()) {
+            hostTarget = rawTarget
+            viewModelScope.launch { repo.saveLastTarget(rawTarget) }
+        }
 
         val onProgress: (String) -> Unit = { msg -> _state.update { it.copy(progress = msg) } }
         val flow = when (st.tool) {

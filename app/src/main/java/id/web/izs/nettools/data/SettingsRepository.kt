@@ -52,6 +52,7 @@ class SettingsRepository(private val context: Context) {
         val SAVED = stringPreferencesKey("saved_hosts")
         val RECENT = stringPreferencesKey("recent_hosts")
         val LAST_TARGET = stringPreferencesKey("last_target")
+        val WIFI_FILTER = stringPreferencesKey("wifi_filter")
         val TOOL_ORDER = stringPreferencesKey("tool_order")
         val DISABLED_TOOLS = stringPreferencesKey("disabled_tools")
         val WIFI_BANDS = stringPreferencesKey("wifi_bands")
@@ -138,13 +139,25 @@ class SettingsRepository(private val context: Context) {
         p[K.RECENT]?.split('\n')?.filter { it.isNotBlank() }?.take(20) ?: emptyList()
     }
 
-    /** Last ran target, restored into the target bar on startup. Empty on fresh install. */
+    /** Last ran host target (shared by host tools). Empty = bar cleared.
+     *  WiFi Analyzer uses [wifiFilter] instead — never overwrites this. */
     val lastTarget: Flow<String> = context.prefs.data.map { p ->
         p[K.LAST_TARGET] ?: ""
     }
 
     suspend fun saveLastTarget(v: String) {
         context.prefs.edit { it[K.LAST_TARGET] = v }
+    }
+
+    /** WiFi Analyzer SSID/MAC filter (target-bar content while that tool is
+     *  active). Separate from [lastTarget] so clearing one never resurrects
+     *  the other on the next launch. */
+    val wifiFilter: Flow<String> = context.prefs.data.map { p ->
+        p[K.WIFI_FILTER] ?: ""
+    }
+
+    suspend fun saveWifiFilter(v: String) {
+        context.prefs.edit { it[K.WIFI_FILTER] = v }
     }
 
     /** WiFi Analyzer Band multi-select, restored on launch. Fresh install = all bands. */

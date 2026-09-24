@@ -1,6 +1,7 @@
 package id.web.izs.nettools.core
 
 import android.net.wifi.WifiManager
+import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -71,8 +72,13 @@ object WifiAnalyzerRunner {
         val connected: Boolean = false,
         /** Center frequency (MHz); 0 = fall back to [frequency]. */
         val centerFreq: Int = 0,
-        /** Occupied bandwidth in MHz (20/40/80/160). */
-        val widthMhz: Int = 20
+        /** Occupied bandwidth in MHz (20/40/80/160/320). */
+        val widthMhz: Int = 20,
+        /**
+         * 802.11 standard from `ScanResult.wifiStandard` (API 30+), e.g.
+         * `802.11ax`. Empty when unknown, pre-R, or the field is unavailable.
+         */
+        val standard: String = ""
     )
 
     /** One row of the Channel display: APs whose spectrum overlaps this channel. */
@@ -171,12 +177,28 @@ object WifiAnalyzerRunner {
     /** True when [channelFreq] (channel center) falls inside the AP's spectrum. */
     fun overlaps(ap: ApInfo, channelFreq: Int): Boolean = channelFreq in occupiedRange(ap)
 
-    /** ScanResult.channelWidth → MHz (0=20, 1=40, 2=80, 3=160, 4=80+80). */
+    /** ScanResult.channelWidth → MHz (0=20, 1=40, 2=80, 3=160, 4=80+80, 5=320). */
     fun widthMhzOf(channelWidth: Int): Int = when (channelWidth) {
         1 -> 40
         2 -> 80
         3, 4 -> 160
+        5 -> 320
         else -> 20
+    }
+
+    /**
+     * `ScanResult.wifiStandard` (API 30+) → IEEE label, same IDs as VREM
+     * (`WIFI_STANDARD_*`: 0 unknown, 1 legacy, 4=n, 5=ac, 6=ax, 7=ad, 8=be).
+     * Unknown / out-of-range → empty (row omits the field).
+     */
+    fun standardOf(wifiStandard: Int): String = when (wifiStandard) {
+        1 -> "802.11a/b/g"
+        4 -> "802.11n"
+        5 -> "802.11ac"
+        6 -> "802.11ax"
+        7 -> "802.11ad"
+        8 -> "802.11be"
+        else -> ""
     }
 
     fun securityOf(capabilities: String): String = when {
@@ -299,12 +321,14 @@ object WifiAnalyzerRunner {
 
     /**
      * Two-line console row (monospace, no indent):
-     *   line 1: SSID · signal stair · dBm · ~distance
-     *   line 2: MAC · channel · band · security · `(gone)`/`(filter)`
+     *   line 1: SSID · signal stair · dBm · ~distance · `(gone)`/`(filter)`
+     *   line 2: MAC · channel · bandwidth · band · security · 802.11
      * Hidden SSIDs show `(hidden)` on line 1 — the MAC on line 2 still
      * uniquely identifies the AP. Connected is a UI color (green), not a marker.
+     * Markers ride on line 1; standard is omitted when unknown
+     * (pre-API 30 / WIFI_STANDARD_UNKNOWN).
      */
-    fun formatAp(ap: ApInfo, gone: Boolean = false): String {
+    fun formatAp(ap: ApInfo, gone: Boolean = false, filter: Boolean = false): String {
         val name = ap.ssid.ifEmpty { "(hidden)" }.take(20)
         val line1 = buildString {
             append(name.padEnd(20))
@@ -313,12 +337,17 @@ object WifiAnalyzerRunner {
             append(ap.rssi.toString().padStart(4))
             append(" dBm  ")
             append(formatDistance(ap.frequency, ap.rssi).padStart(7)) // ~999.9m max common
+            if (gone) append("  (gone)")
+            if (filter) append("  (filter)")
         }
-        val mark = if (gone) " (gone)" else ""
-        // padEnd so band/security stay aligned across rows
+        // Fixed columns so rows stay aligned whether or not width/standard are long:
+        //   MAC(17)  ch(5)  width(7)  band(6)  sec(4)  [standard]
         val ch = "ch${channelOf(ap.frequency).toString().padStart(3)}"
-        val band = "${bandOf(ap.frequency)}G".padEnd(4)
-        val line2 = "${ap.bssid}  $ch  $band ${ap.security}$mark"
+        val width = "${ap.widthMhz}MHz".padEnd(7)
+        val band = "${bandOf(ap.frequency)}G".padEnd(6)
+        val sec = ap.security.padEnd(4)
+        val std = if (ap.standard.isEmpty()) "" else "  ${ap.standard}"
+        val line2 = "${ap.bssid}  $ch  $width$band$sec$std"
         return "$line1\n$line2"
     }
 
@@ -447,7 +476,12 @@ object WifiAnalyzerRunner {
                             security = securityOf(r.capabilities.orEmpty()),
                             connected = connBssid != null && r.BSSID.equals(connBssid, ignoreCase = true),
                             centerFreq = r.centerFreq0,
-                            widthMhz = widthMhzOf(r.channelWidth)
+                            widthMhz = widthMhzOf(r.channelWidth),
+                            standard = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                standardOf(r.wifiStandard)
+                            } else {
+                                ""
+                            }
                         )
                     }.filter { it.bssid.isNotEmpty() }
                 } catch (e: SecurityException) {
@@ -502,7 +536,7 @@ object WifiAnalyzerRunner {
                     }
                     // APs still on air but knocked out by the current filter.
                     for (bssid in shown.filter { b -> matching.none { it.bssid == b } }) {
-                        rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it)}  (filter)") }
+                        rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it, filter = true)}") }
                         shown.remove(bssid)
                     }
                     // Live rows (replace in place on later cycles).
