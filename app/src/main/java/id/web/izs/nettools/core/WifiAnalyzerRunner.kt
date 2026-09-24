@@ -3,10 +3,12 @@ package id.web.izs.nettools.core
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * WiFi Analyzer: live AP list, no root, no target host.
@@ -43,7 +45,9 @@ object WifiAnalyzerRunner {
         val band: Set<String> = setOf("2.4", "5", "6"),
         val channel: Int = -1,    // -1 = all
         val security: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
-        val display: String = DISPLAY_LIST // "list" | "channel"
+        val display: String = DISPLAY_LIST, // "list" | "channel"
+        /** ISO-3166 alpha-2; drives which primary channels are legal to show. */
+        val country: String = "ID"
     )
 
     data class ApInfo(
@@ -83,12 +87,65 @@ object WifiAnalyzerRunner {
         else -> 0
     }
 
-    /** Center frequency of [ch] in [band] ("2.4" / "5" / "6"), or null if n/a. */
-    fun channelFreqOf(ch: Int, band: String): Int? = when {
-        band == "2.4" && ch == 14 -> 2484
-        band == "2.4" && ch in 1..13 -> 2407 + 5 * ch
-        band == "5" && ch >= 1 -> 5000 + 5 * ch
-        band == "6" && ch >= 1 -> 5950 + 5 * ch
+    /** ETSI-ish ISO codes that share the EU 5 GHz / 6 GHz shape. */
+    private val EU_CC = setOf(
+        "AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI",
+        "FR", "GB", "GR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU",
+        "LV", "MT", "NL", "NO", "PL", "PT", "RO", "SE", "SI", "SK", "TR"
+    )
+
+    /** Map ISO country → channel-table region (ID / US / EU / JP / WORLD). */
+    fun regionOf(country: String): String = when (country.uppercase()) {
+        "ID" -> "ID"
+        "US", "CA" -> "US"
+        "JP" -> "JP"
+        in EU_CC -> "EU"
+        else -> "WORLD"
+    }
+
+    /**
+     * Primary channels legal to show for [country] (ISO). Unknown → WORLD
+     * (conservative common set). Empty country falls back to ID (app default).
+     */
+    fun validChannels(band: String, country: String = "ID"): List<Int> {
+        val region = regionOf(country.ifEmpty { "ID" })
+        return when (band) {
+            "2.4" -> when (region) {
+                "US" -> (1..11).toList()
+                "JP" -> (1..14).toList()
+                else -> (1..13).toList()
+            }
+            "5" -> when (region) {
+                "ID" -> ((36..64 step 4) + (149..165 step 4)).toList()
+                "US" -> ((36..64 step 4) + (100..144 step 4) + (149..165 step 4)).toList()
+                "EU", "JP" -> ((36..64 step 4) + (100..140 step 4)).toList()
+                else -> ((36..64 step 4) + (149..165 step 4)).toList()
+            }
+            "6" -> when (region) {
+                "US" -> (1..233 step 4).toList()
+                else -> (1..93 step 4).toList()
+            }
+            else -> emptyList()
+        }
+    }
+
+    /**
+     * Pick ISO country for channel tables: network SIM/roaming ISO first
+     * (no location upload), then device locale; else [fallback].
+     * Coarse country only — never lat/lng.
+     */
+    fun countryOf(networkIso: String?, localeCountry: String?, fallback: String = "ID"): String =
+        listOfNotNull(
+            networkIso?.uppercase()?.takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } },
+            localeCountry?.uppercase()?.takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } }
+        ).firstOrNull() ?: fallback
+
+    /** Center frequency of [ch] in [band] for [country], or null if not legal/primary. */
+    fun channelFreqOf(ch: Int, band: String, country: String = "ID"): Int? = when {
+        band == "2.4" && ch in validChannels("2.4", country) ->
+            if (ch == 14) 2484 else 2407 + 5 * ch
+        band == "5" && ch in validChannels("5", country) -> 5000 + 5 * ch
+        band == "6" && ch in validChannels("6", country) -> 5950 + 5 * ch
         else -> null
     }
 
@@ -170,37 +227,46 @@ object WifiAnalyzerRunner {
      * Per-channel overlap counts for the Channel display: an AP is counted on
      * every channel whose center frequency lies inside the AP's occupied
      * bandwidth (so ch 1 + ch 3 APs both hit ch 2 — same model as VREM).
-     * Rows are sorted by channel number only. Empty 2.4 GHz channels 1–14 are
-     * listed when "2.4" ∈ `f.band`; `f.channel` (if ≥ 0) keeps only that row.
-     * Pass `aps` with the channel chip ignored (`f.copy(channel = -1)`) so
-     * adjacent primaries still overlap the focus.
+     * Rows are sorted by channel number only. Empty channels of every selected
+     * band are listed — only primaries legal in [Filters.country] (region
+     * table: ID / US / EU / JP / WORLD). `f.channel` (if ≥ 0) keeps only
+     * that row. Pass `aps` with the channel chip ignored (`f.copy(channel = -1)`)
+     * so adjacent primaries still overlap the focus. Non-legal / non-primary
+     * numbers never appear (e.g. ID: no ch14, no DFS 100–144).
      */
     fun channelCrowding(aps: List<ApInfo>, f: Filters = Filters()): List<ChannelCrowd> {
+        val country = f.country.ifEmpty { "ID" }
         val pairs = mutableSetOf<Pair<String, Int>>()
-        val seed24 = "2.4" in f.band && (f.channel < 0 || f.channel <= 14)
-        if (seed24) for (ch in 1..14) pairs += "2.4" to ch
+        // Seed every valid primary channel of each selected band (empty rows = 0 APs).
+        for (band in listOf("2.4", "5", "6")) {
+            if (band in f.band) {
+                for (ch in validChannels(band, country)) pairs += band to ch
+            }
+        }
         for (ap in aps) {
             val band = bandOf(ap.frequency)
             if (band == "?") continue
+            val valid = validChannels(band, country).toSet()
             val range = occupiedRange(ap)
             val primary = channelOf(ap.frequency)
             // Walk a window wide enough for 160 MHz (±32 × 5 MHz channels).
             val lo = (primary - 32).coerceAtLeast(1)
             val hi = primary + 32
             for (ch in lo..hi) {
-                val cf = channelFreqOf(ch, band) ?: continue
+                if (ch !in valid) continue
+                val cf = channelFreqOf(ch, band, country) ?: continue
                 if (cf in range) pairs += band to ch
             }
         }
         if (f.channel >= 0 && pairs.none { it.second == f.channel }) {
-            // Quiet focus: one row for the pinned channel, first selected band that has it.
+            // Quiet focus: pinned channel only if it is a valid primary of a selected band.
             val b = listOf("2.4", "5", "6")
-                .firstOrNull { it in f.band && channelFreqOf(f.channel, it) != null }
+                .firstOrNull { it in f.band && f.channel in validChannels(it, country) }
             if (b != null) pairs += b to f.channel
         }
         return pairs
             .map { (band, ch) ->
-                val cf = channelFreqOf(ch, band) ?: return@map null
+                val cf = channelFreqOf(ch, band, country) ?: return@map null
                 ChannelCrowd(
                     channel = ch,
                     count = aps.count { overlaps(it, cf) },
@@ -232,6 +298,8 @@ object WifiAnalyzerRunner {
     fun scan(
         wifi: WifiManager?,
         filters: () -> Filters,
+        /** Tap on the header "next Ns" sends here → wake the cycle early. */
+        refresh: Channel<Unit>? = null,
         onScanDone: () -> Unit = {},
         onChannels: (List<Int>) -> Unit = {},
         onConnected: (String) -> Unit = {}
@@ -240,7 +308,7 @@ object WifiAnalyzerRunner {
             emit("ERROR: WiFi service unavailable")
             return@flow
         }
-        emit(";; refresh every ${REFRESH_MS / 1000}s — Stop ends the run, chips re-filter on the next cycle")
+        emit(";; refresh every ${REFRESH_MS / 1000}s — tap \"next\" to refresh now, Stop ends the run, chips re-filter on the next cycle")
         val shown = mutableSetOf<String>()      // BSSIDs currently live on screen
         val rawCache = mutableMapOf<String, ApInfo>() // last raw sighting (for gone/filter notes)
         var lastStartScanMs = 0L
@@ -254,6 +322,9 @@ object WifiAnalyzerRunner {
             }
             lastStartScanMs = System.currentTimeMillis()
             delay(1200)
+            // Drop taps buffered before this run so cycle 1 is not instant.
+            while (refresh != null && refresh.tryReceive().isSuccess) {
+            }
             while (true) {
                 val f = filters()
                 @Suppress("DEPRECATION")
@@ -289,11 +360,15 @@ object WifiAnalyzerRunner {
                 onConnected(connBssid.orEmpty())
 
                 val matching = raw.filter { matches(it, f) }.sortedByDescending { it.rssi }
-                // Chip list follows ssid/band/security but ignores the channel
-                // chip itself, so every selectable channel stays visible.
+                // Chip list follows band/ssid/security but ignores the channel
+                // chip itself: seed every valid primary of the selected bands
+                // so options stay complete even with no APs on air.
                 onChannels(
-                    raw.filter { matches(it, f.copy(channel = -1)) }
-                        .map { channelOf(it.frequency) }.distinct().sorted()
+                    (
+                        f.band.flatMap { validChannels(it, f.country) } +
+                            raw.filter { matches(it, f.copy(channel = -1)) }
+                                .map { channelOf(it.frequency) }
+                        ).distinct().sorted()
                 )
 
                 if (f.display == DISPLAY_CHANNEL) {
@@ -343,7 +418,22 @@ object WifiAnalyzerRunner {
                     }
                     lastStartScanMs = now
                 }
-                delay(REFRESH_MS.toLong())
+                // Wait out the cycle, or wake early when "next" is tapped
+                // (no Stop/Run needed — fresh startScan + short cache grace).
+                val woke = if (refresh == null) {
+                    delay(REFRESH_MS.toLong())
+                    false
+                } else {
+                    withTimeoutOrNull(REFRESH_MS.toLong()) { refresh.receive() } != null
+                }
+                if (woke) {
+                    try {
+                        wifi.startScan()
+                    } catch (_: SecurityException) {
+                    }
+                    lastStartScanMs = System.currentTimeMillis()
+                    delay(1200)
+                }
             }
         } catch (e: CancellationException) {
             throw e

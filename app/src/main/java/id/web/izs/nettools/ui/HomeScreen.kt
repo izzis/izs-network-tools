@@ -833,13 +833,17 @@ fun HomeScreen(
                             // WiFi Analyzer: countdown to the next scan cycle.
                             // Intrinsic width only — a weight slot here clips
                             // "next 30s" down to "next 9s"-length space.
+                            // Tap = refresh now (wakes the cycle early).
                             if (state.tool == Tool.WIFIANALYZER && state.running && wifiCountdown > 0) {
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     "next ${wifiCountdown}s",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = term.green,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clickable { vm.refreshWifiNow() }
+                                        .padding(horizontal = 2.dp)
                                 )
                             }
                             Spacer(Modifier.weight(1f))

@@ -126,11 +126,13 @@ class WifiAnalyzerRunnerTest {
             ap(bssid = "aa:aa:aa:aa:aa:05", freq = 2462),
             ap(bssid = "aa:aa:aa:aa:aa:06", freq = 5180)  // ch 36
         )
-        val rows = WifiAnalyzerRunner.channelCrowding(aps)
-        // sort by channel number only; 20 MHz ch36 (5170–5190) also covers
-        // centers of ch34–ch38 — same inclusive-range model as VREM.
+        val rows = WifiAnalyzerRunner.channelCrowding(
+            aps, WifiAnalyzerRunner.Filters(band = setOf("2.4", "5"))
+        )
+        // sort by channel number only; only ID-legal primaries appear —
+        // no ch14, no 5 GHz 34/35/37/38, no DFS 100–144.
         assertEquals(
-            listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 34, 35, 36, 37, 38),
+            (1..13).toList() + WifiAnalyzerRunner.validChannels("5"),
             rows.map { it.channel }
         )
         // ch1 AP covers centers ch1–ch3; ch6 covers ch4–ch8; ch11 covers ch9–ch13
@@ -141,10 +143,13 @@ class WifiAnalyzerRunnerTest {
         assertEquals(1, rows.first { it.channel == 5 }.count)
         assertEquals(1, rows.first { it.channel == 6 }.count)
         assertEquals(3, rows.first { it.channel == 11 }.count) // three ch11 APs
-        assertEquals(0, rows.first { it.channel == 14 }.count)
         assertEquals(1, rows.first { it.channel == 36 }.count)
+        assertEquals(0, rows.first { it.channel == 40 }.count) // empty seeded 5 GHz primary
         assertEquals("2.4", rows.first { it.channel == 1 }.band)
         assertEquals("5", rows.first { it.channel == 36 }.band)
+        // forbidden / non-primary numbers never appear
+        assertFalse(rows.any { it.channel == 14 })
+        assertFalse(rows.any { it.band == "5" && it.channel in listOf(34, 35, 37, 38, 100, 104) })
     }
 
     @Test
@@ -154,14 +159,16 @@ class WifiAnalyzerRunnerTest {
             ap(bssid = "aa:aa:aa:aa:aa:01", freq = 2412), // ch 1 → 2402–2422
             ap(bssid = "aa:aa:aa:aa:aa:02", freq = 2422)  // ch 3 → 2412–2432
         )
-        val rows = WifiAnalyzerRunner.channelCrowding(aps)
+        val rows = WifiAnalyzerRunner.channelCrowding(
+            aps, WifiAnalyzerRunner.Filters(band = setOf("2.4"))
+        )
         assertEquals(2, rows.first { it.channel == 2 }.count)
         assertEquals(2, rows.first { it.channel == 1 }.count)
         assertEquals(2, rows.first { it.channel == 3 }.count)
         // sorted by channel, not by count
         assertEquals(
-            (1..14).toList(),
-            rows.map { it.channel }.filter { it <= 14 }
+            (1..13).toList(),
+            rows.map { it.channel }
         )
     }
 
@@ -188,12 +195,13 @@ class WifiAnalyzerRunnerTest {
         assertTrue(five.isNotEmpty())
         assertTrue(five.all { it.band == "5" })
         assertFalse(five.any { it.band == "2.4" })
+        assertEquals(WifiAnalyzerRunner.validChannels("5"), five.map { it.channel })
 
         val two = WifiAnalyzerRunner.channelCrowding(
             aps, WifiAnalyzerRunner.Filters(band = setOf("2.4"))
         )
         assertTrue(two.all { it.band == "2.4" })
-        assertEquals((1..14).toList(), two.map { it.channel })
+        assertEquals((1..13).toList(), two.map { it.channel })
 
         // multi-select: 2.4 + 5 together keeps both landscapes
         val both = WifiAnalyzerRunner.channelCrowding(
@@ -201,6 +209,66 @@ class WifiAnalyzerRunnerTest {
         )
         assertTrue(both.any { it.band == "2.4" })
         assertTrue(both.any { it.band == "5" })
+    }
+
+    @Test
+    fun validChannelsFollowCountryTable() {
+        // ID default (and fallback): 2.4 = 1–13, never ch14
+        assertEquals((1..13).toList(), WifiAnalyzerRunner.validChannels("2.4", "ID"))
+        val id5 = WifiAnalyzerRunner.validChannels("5", "ID")
+        assertEquals(listOf(36, 40, 44, 48, 52, 56, 60, 64), id5.take(8))
+        assertTrue(149 in id5 && 165 in id5)
+        assertFalse(34 in id5 || 35 in id5 || 37 in id5 || 38 in id5)
+        assertFalse(id5.any { it in 100..144 })
+        val id6 = WifiAnalyzerRunner.validChannels("6", "ID")
+        assertEquals(listOf(1, 5, 9, 13), id6.take(4))
+        assertTrue(id6.all { (it - 1) % 4 == 0 && it <= 93 })
+        // US: 2.4 = 1–11; 5 includes DFS 100–144 + 149–165; 6 up to 233
+        assertEquals((1..11).toList(), WifiAnalyzerRunner.validChannels("2.4", "US"))
+        val us5 = WifiAnalyzerRunner.validChannels("5", "US")
+        assertTrue(100 in us5 && 144 in us5 && 149 in us5 && 165 in us5)
+        assertEquals(233, WifiAnalyzerRunner.validChannels("6", "US").last())
+        // JP: 2.4 has ch14; 5 has no 149–165
+        assertEquals((1..14).toList(), WifiAnalyzerRunner.validChannels("2.4", "JP"))
+        val jp5 = WifiAnalyzerRunner.validChannels("5", "JP")
+        assertTrue(100 in jp5 && jp5.none { it in 149..165 })
+        // EU: DFS 100–140, no 149–165
+        val eu5 = WifiAnalyzerRunner.validChannels("5", "DE")
+        assertTrue(100 in eu5 && 140 in eu5 && eu5.none { it in 149..165 })
+        // unknown → WORLD: same shape as ID for 5 GHz, 1–13 for 2.4
+        assertEquals((1..13).toList(), WifiAnalyzerRunner.validChannels("2.4", "XX"))
+        assertEquals(
+            ((36..64 step 4) + (149..165 step 4)).toList(),
+            WifiAnalyzerRunner.validChannels("5", "XX")
+        )
+    }
+
+    @Test
+    fun countryOfPrefersNetworkThenLocaleThenFallback() {
+        assertEquals("US", WifiAnalyzerRunner.countryOf("us", "id"))
+        assertEquals("DE", WifiAnalyzerRunner.countryOf(null, "de"))
+        assertEquals("ID", WifiAnalyzerRunner.countryOf(null, null))
+        assertEquals("ID", WifiAnalyzerRunner.countryOf("", "1", fallback = "ID"))
+        assertEquals("JP", WifiAnalyzerRunner.countryOf("1", "jp"))
+    }
+
+    @Test
+    fun channelFreqOfRejectsNonCountryChannels() {
+        assertEquals(5180, WifiAnalyzerRunner.channelFreqOf(36, "5", "ID"))
+        assertEquals(5745, WifiAnalyzerRunner.channelFreqOf(149, "5", "ID"))
+        assertEquals(2412, WifiAnalyzerRunner.channelFreqOf(1, "2.4", "ID"))
+        // ch14 (JP) / non-primary 5 GHz / DFS 100+ / 6 GHz above 93 — ID table
+        assertEquals(null, WifiAnalyzerRunner.channelFreqOf(14, "2.4", "ID"))
+        assertEquals(null, WifiAnalyzerRunner.channelFreqOf(34, "5", "ID"))
+        assertEquals(null, WifiAnalyzerRunner.channelFreqOf(37, "5", "ID"))
+        assertEquals(null, WifiAnalyzerRunner.channelFreqOf(100, "5", "ID"))
+        assertEquals(null, WifiAnalyzerRunner.channelFreqOf(97, "6", "ID"))
+        assertEquals(5955, WifiAnalyzerRunner.channelFreqOf(1, "6", "ID"))
+        // legal under their own country tables
+        assertEquals(2484, WifiAnalyzerRunner.channelFreqOf(14, "2.4", "JP"))
+        assertEquals(5500, WifiAnalyzerRunner.channelFreqOf(100, "5", "US"))
+        assertEquals(2462, WifiAnalyzerRunner.channelFreqOf(11, "2.4", "US"))
+        assertEquals(null, WifiAnalyzerRunner.channelFreqOf(149, "5", "DE"))
     }
 
     @Test

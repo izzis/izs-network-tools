@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
+import android.telephony.TelephonyManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.izs.nettools.core.CertChecker
@@ -32,6 +33,7 @@ import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
 import id.web.izs.nettools.model.orderedEnabledTools
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -169,12 +171,39 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** ISO country for WiFi channel tables: network SIM/roaming ISO → device
+     *  locale → ID. Coarse ISO only, never lat/lng (privacy). */
+    private val wifiCountry: String by lazy { detectCountry() }
+
+    private fun detectCountry(): String = try {
+        val tm = getApplication<Application>().applicationContext
+            .getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        WifiAnalyzerRunner.countryOf(
+            networkIso = tm?.networkCountryIso,
+            localeCountry = Locale.getDefault().country
+        )
+    } catch (_: Exception) {
+        "ID"
+    }
+
+    /** Tap "next Ns": wake the WiFi scan cycle now instead of waiting out
+     *  the 30 s countdown (no Stop → Run). CONFLATED: taps while not
+     *  waiting collapse into one. */
+    private val wifiRefreshTick = Channel<Unit>(Channel.CONFLATED)
+
+    fun refreshWifiNow() {
+        if (_state.value.tool == Tool.WIFIANALYZER && _state.value.running) {
+            wifiRefreshTick.trySend(Unit)
+        }
+    }
+
     private fun wifiFilters() = WifiAnalyzerRunner.Filters(
         query = _state.value.target.trim(),
         band = _state.value.wifiBand,
         channel = _state.value.wifiChannel,
         security = _state.value.wifiSecurity,
-        display = _state.value.wifiDisplay
+        display = _state.value.wifiDisplay,
+        country = wifiCountry
     )
 
     /** Tap a tool = run it immediately (except IP Scan and Loop: too heavy
@@ -433,6 +462,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.WIFIANALYZER -> WifiAnalyzerRunner.scan(
                 wifi = wifiManager(),
                 filters = { wifiFilters() },
+                refresh = wifiRefreshTick,
                 onScanDone = {
                     _state.update { it.copy(lastRefreshAt = System.currentTimeMillis(), wifiCycles = it.wifiCycles + 1) }
                 },
