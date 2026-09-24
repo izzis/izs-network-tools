@@ -399,6 +399,8 @@ object WifiAnalyzerRunner {
         filters: () -> Filters,
         /** Tap on the header "next Ns" sends here → wake the cycle early. */
         refresh: Channel<Unit>? = null,
+        /** Fires when a startScan + cache-grace window opens (UI shows spinner). */
+        onScanStart: () -> Unit = {},
         onScanDone: () -> Unit = {},
         onChannels: (List<Int>) -> Unit = {},
         onConnected: (String) -> Unit = {}
@@ -416,6 +418,7 @@ object WifiAnalyzerRunner {
             // Kick the first scan and give the OS a moment to fill the cache.
             // startScan() needs CHANGE_WIFI_STATE; a throw must not kill the run
             // (getScanResults still works off the OS cache on its own cadence).
+            onScanStart()
             try {
                 wifi.startScan()
             } catch (_: SecurityException) {
@@ -537,6 +540,7 @@ object WifiAnalyzerRunner {
                     withTimeoutOrNull(REFRESH_MS.toLong()) { refresh.receive() } != null
                 }
                 if (woke) {
+                    onScanStart()
                     try {
                         wifi.startScan()
                     } catch (_: SecurityException) {

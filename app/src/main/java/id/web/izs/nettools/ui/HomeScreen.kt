@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -351,13 +352,18 @@ fun HomeScreen(
     val savedBase = remember(state.saved, state.settings.savedSort) {
         state.saved.sortedFor(SavedSort.of(state.settings.savedSort))
     }
+    // Saved capped short in the dropdown (full list lives in Manage Hosts);
+    // Recent shows everything storage kept — that IS the maxRecent setting,
+    // so the number in Settings always matches what appears here.
+    // Typing in the target bar widens Saved so a filter can still reach the rest.
     val savedShown = (if (dropQuery.isEmpty()) savedBase
-        else savedBase.filter { it.label.contains(dropQuery, true) || it.host.contains(dropQuery, true) }).take(50)
+        else savedBase.filter { it.label.contains(dropQuery, true) || it.host.contains(dropQuery, true) })
+        .take(if (dropQuery.isEmpty()) 10 else 50)
     val recentBase = if (state.settings.hideRecentDupes)
         state.recent.filter { r -> state.saved.none { it.host.equals(r, ignoreCase = true) } }
     else state.recent
-    val recentShown = (if (dropQuery.isEmpty()) recentBase
-        else recentBase.filter { it.contains(dropQuery, true) }).take(20)
+    val recentShown = if (dropQuery.isEmpty()) recentBase
+        else recentBase.filter { it.contains(dropQuery, true) }
 
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.clearMessage() }
@@ -498,24 +504,64 @@ fun HomeScreen(
         },
         snackbarHost = { SnackbarHost(snack) }
     ) { pad ->
-        Column(
+        // Box hosts the saved-list overlay so it floats over the tool grid
+        // instead of pushing it down (layout stays put on open/close).
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(pad)
-                .padding(12.dp)
-                .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
+                // Tighter on top only: less air between TopAppBar and the
+                // target field; sides/bottom keep 8.dp with the column gap.
+                .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = {
+                        focusManager.clearFocus()
+                        // Tap on empty space (console, hint, spacers) dismisses
+                        // the saved list. Clickable children consume their own
+                        // taps, so setTool/run/stop close it on their side.
+                        if (state.dropExpanded) vm.setDrop(false)
+                    })
+                },
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // --- Target bar: single unified search bar ---
+            // My IP / Neighbor ignore the target: show the label and hide
+            // any value left over from another tool (kept in state, restored
+            // when switching back to a tool that needs it).
+            // label (not placeholder): floats onto the border when focused or
+            // filled, same as Settings fields; height pinned so the min-height
+            // never grows past the compact look.
+            val targetHidden = state.tool == Tool.MYIP || state.tool == Tool.NEIGHBOR
             OutlinedTextField(
-                value = state.target,
-                onValueChange = vm::setTarget,
-                placeholder = {
-                    Text(if (state.tool == Tool.WIFIANALYZER) "SSID or MAC filter (optional)" else "Target (IP / host)")
+                value = if (targetHidden) "" else state.target,
+                onValueChange = { if (!targetHidden) vm.setTarget(it) },
+                readOnly = targetHidden,
+                label = {
+                    Text(
+                        when (state.tool) {
+                            Tool.PING -> "IP / host"
+                            Tool.DIG -> "Domain name"
+                            Tool.TRACE -> "IP / host"
+                            Tool.WHOIS -> "Domain / IP"
+                            Tool.IPINFO -> "IP / host"
+                            Tool.MYIP -> "no target needed"
+                            Tool.HEADERS -> "URL / host"
+                            Tool.PORTS -> "IP / host (port optional)"
+                            Tool.CERT -> "Host (port optional)"
+                            Tool.LOOP -> "IP / host · empty=GW"
+                            Tool.NEIGHBOR -> "no target needed"
+                            Tool.SWEEP -> "IP range / CIDR"
+                            Tool.WIFIANALYZER -> "SSID / MAC filter"
+                        }
+                    )
                 },
                 singleLine = true,
                 leadingIcon = {
-                    if (state.target.isEmpty()) {
+                    if (state.target.isEmpty() || targetHidden) {
                         Icon(Icons.Filled.Search, contentDescription = null)
                     } else {
                         // Clear doubles as the leading icon: no extra trailing
@@ -526,18 +572,8 @@ fun HomeScreen(
                     }
                 },
                 trailingIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { vm.toggleSave() }) {
-                            Icon(
-                                if (state.isTargetSaved) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = "Save target",
-                                tint = if (state.isTargetSaved) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        IconButton(onClick = { vm.setDrop(!state.dropExpanded) }) {
-                            Icon(Icons.Filled.ArrowDropDown, contentDescription = "Pick saved")
-                        }
+                    IconButton(onClick = { vm.setDrop(!state.dropExpanded) }, enabled = !targetHidden) {
+                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "Saved list")
                     }
                 },
                 shape = RoundedCornerShape(16.dp),
@@ -553,68 +589,10 @@ fun HomeScreen(
                     focusManager.clearFocus()
                     runAction()
                 }),
-                modifier = Modifier.fillMaxWidth()
+                // Pin the height: M3's default min-height for a label field is
+                // taller than this bar used to be — don't let it creep back.
+                modifier = Modifier.fillMaxWidth().height(56.dp)
             )
-
-            // --- Saved + recent dropdown (compact rows) ---
-            if (state.dropExpanded) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier
-                            .padding(vertical = 4.dp)
-                            .heightIn(max = 360.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(0.dp)
-                    ) {
-                        Text(
-                            "Saved",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
-                        if (savedShown.isEmpty()) {
-                            Text(
-                                if (dropQuery.isEmpty()) "Empty. Type a target, then tap the star."
-                                else "No saved match for \"$dropQuery\".",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                        }
-                        savedShown.forEach { h ->
-                            TargetRow(
-                                title = h.label,
-                                subtitle = h.host,
-                                onPick = { vm.pickTarget(h.host) },
-                                onDelete = { vm.deleteSaved(h.id) }
-                            )
-                        }
-                        if (state.settings.maxRecent > 0) {
-                            Text(
-                                "Recent",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                            if (recentShown.isEmpty()) {
-                                Text(
-                                    if (dropQuery.isEmpty()) "No history yet."
-                                    else "No recent match for \"$dropQuery\".",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                )
-                            }
-                            recentShown.forEach { h ->
-                                TargetRow(
-                                    title = h,
-                                    subtitle = null,
-                                    onPick = { vm.pickTarget(h) },
-                                    onDelete = null
-                                )
-                            }
-                        }
-                    }
-                }
-            }
 
             // --- Tool selector: exactly 2 rows, divider-separated, no boxes.
             // Tap = select (+ auto-run when enabled, except IP Scan and Loop).
@@ -788,6 +766,7 @@ fun HomeScreen(
                         Tab(
                             selected = wifiFilterDim == i,
                             onClick = { wifiFilterDim = i },
+                            modifier = Modifier.height(36.dp),
                             text = {
                                 Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                             }
@@ -898,21 +877,31 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                            // WiFi Analyzer: countdown to the next scan cycle.
+                            // WiFi Analyzer: spinner while a scan + cache-grace
+                            // window is open (first cycle or manual "next" tap),
+                            // countdown to the next cycle once rows land.
                             // Intrinsic width only — a weight slot here clips
                             // "next 30s" down to "next 9s"-length space.
-                            // Tap = refresh now (wakes the cycle early).
-                            if (state.tool == Tool.WIFIANALYZER && state.running && wifiCountdown > 0) {
+                            // Tap countdown = refresh now (wakes the cycle early).
+                            if (state.tool == Tool.WIFIANALYZER && state.running) {
                                 Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "next ${wifiCountdown}s",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = term.green,
-                                    maxLines = 1,
-                                    modifier = Modifier
-                                        .clickable { vm.refreshWifiNow() }
-                                        .padding(horizontal = 2.dp)
-                                )
+                                if (state.wifiScanning) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = term.green
+                                    )
+                                } else if (wifiCountdown > 0) {
+                                    Text(
+                                        "next ${wifiCountdown}s",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = term.green,
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .clickable { vm.refreshWifiNow() }
+                                            .padding(horizontal = 2.dp)
+                                    )
+                                }
                             }
                             Spacer(Modifier.weight(1f))
                             IconButton(onClick = { vm.bumpFont(-1f) }) {
@@ -954,6 +943,103 @@ fun HomeScreen(
                             }
                         }
                     }
+            }
+        }
+
+            // --- Saved + recent dropdown: floats over the tool grid ---
+            // Positioned under the 56.dp target field (+ 8.dp column gap);
+            // zIndex keeps it above the Column below it in the Box.
+            if (state.dropExpanded) {
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(top = 64.dp)
+                        .zIndex(1f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(vertical = 4.dp)
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        // Recent first (quick re-pick of what you just used);
+                        // Saved below with Save/Remove on its header row.
+                        if (state.settings.maxRecent > 0) {
+                            Text(
+                                "Recent",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            if (recentShown.isEmpty()) {
+                                Text(
+                                    if (dropQuery.isEmpty()) "No history yet."
+                                    else "No recent match for \"$dropQuery\".",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                )
+                            }
+                            recentShown.forEach { h ->
+                                TargetRow(
+                                    title = h,
+                                    subtitle = null,
+                                    onPick = { vm.pickTarget(h) },
+                                    onDelete = null
+                                )
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Saved",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            Spacer(Modifier.weight(1f))
+                            if (state.target.isNotBlank()) {
+                                TextButton(
+                                    onClick = { vm.toggleSave() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        if (state.isTargetSaved) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (state.isTargetSaved) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        if (state.isTargetSaved) "Remove" else "Save",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                        if (savedShown.isEmpty()) {
+                            Text(
+                                if (dropQuery.isEmpty()) "Empty. Type a target, then tap Save."
+                                else "No saved match for \"$dropQuery\".",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
+                        savedShown.forEach { h ->
+                            TargetRow(
+                                title = h.label,
+                                subtitle = h.host,
+                                onPick = { vm.pickTarget(h.host) },
+                                onDelete = { vm.deleteSaved(h.id) }
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -203,7 +203,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
     val scope = rememberCoroutineScope()
     var s by remember(state.settings) { mutableStateOf(state.settings) }
     var dirty by remember { mutableStateOf(false) }
-    val tabs = listOf("Servers", "Whois", "Scan", "Tools", "General")
+    val tabs = listOf("Servers", "Scan", "Tools", "General")
     val pagerState = rememberPagerState { tabs.size }
 
     // Auto-save (debounced): covers top-left back, system back gesture/button.
@@ -290,9 +290,8 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                 ) {
                     when (page) {
                         0 -> ServersTab(s, ::update)
-                        1 -> WhoisTab(s, ::update)
-                        2 -> ScanTab(s, ::update)
-                        3 -> ToolsTab(s, ::update)
+                        1 -> ScanTab(s, ::update)
+                        2 -> ToolsTab(s, ::update)
                         else -> GeneralTab(s, ::update, onOpenColors)
                     }
                 }
@@ -321,6 +320,24 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
         value = s.myIpBase,
         presets = IpInfoPresets.myIp,
         onChange = { update(s.copy(myIpBase = it)) }
+    )
+    ServerDropdown(
+        label = "RDAP server (modern Whois)",
+        value = s.rdapBase,
+        presets = RdapPresets.all,
+        onChange = { update(s.copy(rdapBase = it)) }
+    )
+    ServerDropdown(
+        label = "WHOIS server (port 43)",
+        value = s.whoisServer,
+        presets = WhoisPresets.all,
+        onChange = { update(s.copy(whoisServer = it)) }
+    )
+    NumberField(
+        value = s.whoisPort,
+        range = 1..65535,
+        label = "WHOIS port (default 43)",
+        onCommit = { update(s.copy(whoisPort = it)) }
     )
     var tokenText by remember(s.globalpingToken) { mutableStateOf(s.globalpingToken) }
     fun syncToken() {
@@ -356,28 +373,6 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
             modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) syncIpinfoToken() }
         )
     }
-}
-
-@Composable
-private fun WhoisTab(s: AppSettings, update: (AppSettings) -> Unit) {
-    ServerDropdown(
-        label = "RDAP server (modern Whois)",
-        value = s.rdapBase,
-        presets = RdapPresets.all,
-        onChange = { update(s.copy(rdapBase = it)) }
-    )
-    ServerDropdown(
-        label = "WHOIS server (port 43)",
-        value = s.whoisServer,
-        presets = WhoisPresets.all,
-        onChange = { update(s.copy(whoisServer = it)) }
-    )
-    NumberField(
-        value = s.whoisPort,
-        range = 1..65535,
-        label = "WHOIS port (default 43)",
-        onCommit = { update(s.copy(whoisPort = it)) }
-    )
 }
 
 @Composable
@@ -538,6 +533,16 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
 
 @Composable
 private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColors: () -> Unit) {
+    @Composable
+    fun section(title: String) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+    section("Appearance")
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.weight(1f)) {
             ServerDropdown(
@@ -552,12 +557,16 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
             Icon(Icons.Filled.Palette, contentDescription = "Customize colors")
         }
     }
-    NumberField(
-        value = s.maxRecent,
-        range = 0..50,
-        label = "Max recent targets (0 = off)",
-        onCommit = { update(s.copy(maxRecent = it)) }
-    )
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Colored output")
+        Switch(checked = s.coloredOutput, onCheckedChange = { update(s.copy(coloredOutput = it)) })
+    }
+
+    section("Run")
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -579,17 +588,17 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Colored output")
-        Switch(checked = s.coloredOutput, onCheckedChange = { update(s.copy(coloredOutput = it)) })
-    }
-    Row(
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-    ) {
         Text("Clear output on each run")
         Switch(checked = s.autoClearOutput, onCheckedChange = { update(s.copy(autoClearOutput = it)) })
     }
+
+    section("History")
+    NumberField(
+        value = s.maxRecent,
+        range = 0..50,
+        label = "Max recent targets (0 = off)",
+        onCommit = { update(s.copy(maxRecent = it)) }
+    )
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

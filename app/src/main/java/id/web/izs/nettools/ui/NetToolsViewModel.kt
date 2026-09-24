@@ -78,6 +78,8 @@ data class HomeUiState(
     val wifiChannels: List<Int> = emptyList(),
     /** Timestamp of the last completed WiFi scan cycle (countdown basis). */
     val lastRefreshAt: Long = 0L,
+    /** True while a startScan + cache-grace window is open (spinner, no countdown). */
+    val wifiScanning: Boolean = false,
     /** Completed WiFi scan cycles this run — 0 = still filling the first batch. */
     val wifiCycles: Int = 0,
     /** BSSID of the associated AP — colors that row green in the console. */
@@ -125,6 +127,16 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             val bands = repo.wifiBands.first()
             _state.update { it.copy(wifiBand = bands) }
         }
+        // Restore the last selected tool — select only, never auto-run.
+        // If it was since disabled in Settings, keep the current tool and let
+        // the settings collector above fall back to the first enabled one.
+        viewModelScope.launch {
+            val t = Tool.of(repo.lastTool.first()) ?: return@launch
+            _state.update { cur ->
+                if (t.name in cur.settings.disabledTools) cur
+                else cur.copy(tool = t, loopVerdict = null, stormVerdict = null)
+            }
+        }
     }
 
     fun setTarget(v: String) {
@@ -136,7 +148,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTool(t: Tool) {
         // Drop any stale loop banner: it belonged to the previous tool/target.
-        _state.update { it.copy(tool = t, loopVerdict = null, stormVerdict = null) }
+        _state.update { it.copy(tool = t, loopVerdict = null, stormVerdict = null, dropExpanded = false) }
+        viewModelScope.launch { repo.saveLastTool(t.name) }
         // IP Scan: autofill the target bar with your own /24 network.
         if (t == Tool.SWEEP && _state.value.target.isBlank()) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -382,7 +395,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun stop() {
         job?.cancel()
         job = null
-        _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L) }
+        _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L, wifiScanning = false, dropExpanded = false) }
     }
 
     /** Best-effort WiFi handle for the Neighbor multicast phases; null = they proceed anyway. */
@@ -461,7 +474,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
         val header = "== ${st.tool.title} $headerTarget [via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
-        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) System.currentTimeMillis() else it.lastRefreshAt, wifiCycles = 0, wifiConnBssid = "") }
+        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) 0L else it.lastRefreshAt, wifiScanning = st.tool == Tool.WIFIANALYZER, wifiCycles = 0, wifiConnBssid = "", dropExpanded = false) }
         if (st.tool != Tool.SWEEP && st.tool != Tool.WIFIANALYZER && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
         // target bar, so it never overwrites; empty sweep keeps the old one;
@@ -489,8 +502,9 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 wifi = wifiManager(),
                 filters = { wifiFilters() },
                 refresh = wifiRefreshTick,
+                onScanStart = { _state.update { it.copy(wifiScanning = true) } },
                 onScanDone = {
-                    _state.update { it.copy(lastRefreshAt = System.currentTimeMillis(), wifiCycles = it.wifiCycles + 1) }
+                    _state.update { it.copy(lastRefreshAt = System.currentTimeMillis(), wifiCycles = it.wifiCycles + 1, wifiScanning = false) }
                 },
                 onChannels = { ch -> _state.update { it.copy(wifiChannels = ch) } },
                 onConnected = { bssid -> _state.update { it.copy(wifiConnBssid = bssid) } }
@@ -545,7 +559,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
-            _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L) }
+            _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L, wifiScanning = false) }
         }
     }
 
