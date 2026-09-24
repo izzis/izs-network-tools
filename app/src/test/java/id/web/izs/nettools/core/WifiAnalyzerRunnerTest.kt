@@ -78,19 +78,39 @@ class WifiAnalyzerRunnerTest {
 
     @Test
     fun chipsAndTogether() {
-        val f = WifiAnalyzerRunner.Filters(band = "5", channel = 36, security = "WPA3")
+        val f = WifiAnalyzerRunner.Filters(
+            band = setOf("5"), channel = 36, security = setOf("WPA3")
+        )
         assertTrue(WifiAnalyzerRunner.matches(ap(freq = 5180, security = "WPA3"), f))
         // right band, wrong channel
         assertFalse(WifiAnalyzerRunner.matches(ap(freq = 5200, security = "WPA3"), f))
         // right band+channel, wrong security
         assertFalse(WifiAnalyzerRunner.matches(ap(freq = 5180, security = "WPA2"), f))
-        // channel 6 exists on 2.4 GHz — band=5 must still reject it
+        // channel 6 exists on 2.4 GHz — band={5} must still reject it
         assertFalse(
             WifiAnalyzerRunner.matches(
                 ap(freq = 2437, security = "WPA3"),
-                WifiAnalyzerRunner.Filters(band = "5", channel = 6)
+                WifiAnalyzerRunner.Filters(band = setOf("5"), channel = 6)
             )
         )
+    }
+
+    @Test
+    fun multiSelectBandAndSecurityOrWithinGroup() {
+        // 2.4+5 selected (not 6); WPA2+open (not WPA3)
+        val f = WifiAnalyzerRunner.Filters(
+            band = setOf("2.4", "5"),
+            security = setOf("WPA2", "open")
+        )
+        assertTrue(WifiAnalyzerRunner.matches(ap(freq = 2412, security = "WPA2"), f))
+        assertTrue(WifiAnalyzerRunner.matches(ap(freq = 5180, security = "open"), f))
+        // 6 GHz not in band set
+        assertFalse(WifiAnalyzerRunner.matches(ap(freq = 6135, security = "WPA2"), f))
+        // WPA3 not in security set
+        assertFalse(WifiAnalyzerRunner.matches(ap(freq = 2412, security = "WPA3"), f))
+        // nothing selected → match nothing
+        val none = WifiAnalyzerRunner.Filters(band = emptySet(), security = emptySet())
+        assertFalse(WifiAnalyzerRunner.matches(ap(), none))
     }
 
     // --- channel overlap counts (Display = Channel) ---
@@ -154,6 +174,47 @@ class WifiAnalyzerRunnerTest {
         val rows = WifiAnalyzerRunner.channelCrowding(aps)
         val covered = rows.filter { it.count > 0 && it.channel in 1..14 }.map { it.channel }
         assertEquals((2..10).toList(), covered)
+    }
+
+    @Test
+    fun channelCrowdingBandFilterDropsOtherBands() {
+        val aps = listOf(
+            ap(bssid = "aa:aa:aa:aa:aa:01", freq = 2412), // ch 1 2.4
+            ap(bssid = "aa:aa:aa:aa:aa:02", freq = 5180)  // ch 36 5
+        )
+        val five = WifiAnalyzerRunner.channelCrowding(
+            aps, WifiAnalyzerRunner.Filters(band = setOf("5"))
+        )
+        assertTrue(five.isNotEmpty())
+        assertTrue(five.all { it.band == "5" })
+        assertFalse(five.any { it.band == "2.4" })
+
+        val two = WifiAnalyzerRunner.channelCrowding(
+            aps, WifiAnalyzerRunner.Filters(band = setOf("2.4"))
+        )
+        assertTrue(two.all { it.band == "2.4" })
+        assertEquals((1..14).toList(), two.map { it.channel })
+
+        // multi-select: 2.4 + 5 together keeps both landscapes
+        val both = WifiAnalyzerRunner.channelCrowding(
+            aps, WifiAnalyzerRunner.Filters(band = setOf("2.4", "5"))
+        )
+        assertTrue(both.any { it.band == "2.4" })
+        assertTrue(both.any { it.band == "5" })
+    }
+
+    @Test
+    fun channelCrowdingChannelChipKeepsOnlyFocusRow() {
+        // ch1 + ch3 APs both overlap ch2; focus chip = 2 → single row, count 2.
+        val aps = listOf(
+            ap(bssid = "aa:aa:aa:aa:aa:01", freq = 2412),
+            ap(bssid = "aa:aa:aa:aa:aa:02", freq = 2422)
+        )
+        val rows = WifiAnalyzerRunner.channelCrowding(
+            aps, WifiAnalyzerRunner.Filters(channel = 2)
+        )
+        assertEquals(listOf(2), rows.map { it.channel })
+        assertEquals(2, rows[0].count)
     }
 
     @Test

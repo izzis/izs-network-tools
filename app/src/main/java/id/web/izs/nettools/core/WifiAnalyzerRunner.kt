@@ -33,12 +33,16 @@ object WifiAnalyzerRunner {
     const val DISPLAY_LIST = "list"
     const val DISPLAY_CHANNEL = "channel"
 
-    /** Band/channel/security chips + free-text query (SSID or MAC). */
+    /**
+     * Query + multi-select chips + single-select channel/display.
+     * [band] / [security]: empty set = nothing selected (match nothing);
+     * default = every option. Within a chip group items are OR-ed; groups AND.
+     */
     data class Filters(
         val query: String = "",   // SSID or BSSID substring, case-insensitive
-        val band: String = "",    // "", "2.4", "5", "6"
+        val band: Set<String> = setOf("2.4", "5", "6"),
         val channel: Int = -1,    // -1 = all
-        val security: String = "",// "", "WPA3", "WPA2", "WPA", "WEP", "open"
+        val security: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
         val display: String = DISPLAY_LIST // "list" | "channel"
     )
 
@@ -121,9 +125,9 @@ object WifiAnalyzerRunner {
             !ap.ssid.contains(f.query, ignoreCase = true) &&
             !ap.bssid.contains(f.query, ignoreCase = true)
         ) return false
-        if (f.band.isNotEmpty() && bandOf(ap.frequency) != f.band) return false
+        if (bandOf(ap.frequency) !in f.band) return false
         if (f.channel >= 0 && channelOf(ap.frequency) != f.channel) return false
-        if (f.security.isNotEmpty() && !ap.security.equals(f.security, ignoreCase = true)) return false
+        if (f.security.none { it.equals(ap.security, ignoreCase = true) }) return false
         return true
     }
 
@@ -167,11 +171,14 @@ object WifiAnalyzerRunner {
      * every channel whose center frequency lies inside the AP's occupied
      * bandwidth (so ch 1 + ch 3 APs both hit ch 2 — same model as VREM).
      * Rows are sorted by channel number only. Empty 2.4 GHz channels 1–14 are
-     * always listed so a quiet band still shows its landscape.
+     * listed when "2.4" ∈ `f.band`; `f.channel` (if ≥ 0) keeps only that row.
+     * Pass `aps` with the channel chip ignored (`f.copy(channel = -1)`) so
+     * adjacent primaries still overlap the focus.
      */
-    fun channelCrowding(aps: List<ApInfo>): List<ChannelCrowd> {
+    fun channelCrowding(aps: List<ApInfo>, f: Filters = Filters()): List<ChannelCrowd> {
         val pairs = mutableSetOf<Pair<String, Int>>()
-        for (ch in 1..14) pairs += "2.4" to ch
+        val seed24 = "2.4" in f.band && (f.channel < 0 || f.channel <= 14)
+        if (seed24) for (ch in 1..14) pairs += "2.4" to ch
         for (ap in aps) {
             val band = bandOf(ap.frequency)
             if (band == "?") continue
@@ -181,20 +188,28 @@ object WifiAnalyzerRunner {
             val lo = (primary - 32).coerceAtLeast(1)
             val hi = primary + 32
             for (ch in lo..hi) {
-                val f = channelFreqOf(ch, band) ?: continue
-                if (f in range) pairs += band to ch
+                val cf = channelFreqOf(ch, band) ?: continue
+                if (cf in range) pairs += band to ch
             }
+        }
+        if (f.channel >= 0 && pairs.none { it.second == f.channel }) {
+            // Quiet focus: one row for the pinned channel, first selected band that has it.
+            val b = listOf("2.4", "5", "6")
+                .firstOrNull { it in f.band && channelFreqOf(f.channel, it) != null }
+            if (b != null) pairs += b to f.channel
         }
         return pairs
             .map { (band, ch) ->
-                val f = channelFreqOf(ch, band) ?: return@map null
+                val cf = channelFreqOf(ch, band) ?: return@map null
                 ChannelCrowd(
                     channel = ch,
-                    count = aps.count { overlaps(it, f) },
+                    count = aps.count { overlaps(it, cf) },
                     band = band
                 )
             }
             .filterNotNull()
+            .filter { it.band in f.band }
+            .filter { f.channel < 0 || it.channel == f.channel }
             .sortedWith(compareBy({ it.channel }, { it.band }))
     }
 
@@ -283,7 +298,10 @@ object WifiAnalyzerRunner {
 
                 if (f.display == DISPLAY_CHANNEL) {
                     // Overlap view: one LIVE row per channel, sorted by channel no.
-                    for (c in channelCrowding(matching)) {
+                    // Channel chip picks the focus row; count with channel ignored
+                    // so adjacent primaries still overlap it (VREM model).
+                    val forCrowd = raw.filter { matches(it, f.copy(channel = -1)) }
+                    for (c in channelCrowding(forCrowd, f)) {
                         emit("${GlobalpingRunner.LIVE}ch:${c.channel}\n${formatChannelCrowd(c)}")
                     }
                 } else {

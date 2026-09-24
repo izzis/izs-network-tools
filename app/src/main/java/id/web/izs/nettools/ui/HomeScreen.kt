@@ -759,10 +759,10 @@ fun HomeScreen(
                     }
                 }
                 when (wifiFilterDim) {
-                    0 -> WifiOptionRow(
-                        options = listOf("" to "All", "2.4" to "2.4", "5" to "5", "6" to "6"),
+                    0 -> WifiMultiOptionRow(
+                        options = listOf("2.4" to "2.4", "5" to "5", "6" to "6"),
                         selected = state.wifiBand,
-                        onSelect = vm::setWifiBand
+                        onToggle = vm::toggleWifiBand
                     )
                     1 -> {
                         val chans = listOf(-1) + state.wifiChannels
@@ -772,13 +772,13 @@ fun HomeScreen(
                             onSelect = vm::setWifiChannel
                         )
                     }
-                    2 -> WifiOptionRow(
+                    2 -> WifiMultiOptionRow(
                         options = listOf(
-                            "" to "All", "WPA3" to "WPA3", "WPA2" to "WPA2",
+                            "WPA3" to "WPA3", "WPA2" to "WPA2",
                             "WPA" to "WPA", "WEP" to "WEP", "open" to "open"
                         ),
                         selected = state.wifiSecurity,
-                        onSelect = vm::setWifiSecurity
+                        onToggle = vm::toggleWifiSecurity
                     )
                     else -> WifiOptionRow(
                         options = listOf(
@@ -1247,6 +1247,33 @@ private fun <T> WifiOptionRow(
             FilterChip(
                 selected = value == selected,
                 onClick = { onSelect(value) },
+                label = {
+                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                },
+                modifier = Modifier.height(28.dp)
+            )
+        }
+    }
+}
+
+/** Multi-select chip strip (Band / Security): each item toggles on/off. */
+@Composable
+private fun WifiMultiOptionRow(
+    options: List<Pair<String, String>>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+    ) {
+        options.forEach { (value, label) ->
+            FilterChip(
+                selected = value in selected,
+                onClick = { onToggle(value) },
                 label = {
                     Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 },

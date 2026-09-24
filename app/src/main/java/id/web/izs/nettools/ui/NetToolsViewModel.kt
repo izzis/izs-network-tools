@@ -66,10 +66,11 @@ data class HomeUiState(
     val recent: List<String> = emptyList(),
     val dropExpanded: Boolean = false,
     val isTargetSaved: Boolean = false,
-    /** WiFi Analyzer chip filters (per-session, like Dig record type). */
-    val wifiBand: String = "",
+    /** WiFi Analyzer chip filters (per-session, like Dig record type).
+     *  Band / security are multi-select; default = every option. */
+    val wifiBand: Set<String> = setOf("2.4", "5", "6"),
     val wifiChannel: Int = -1,
-    val wifiSecurity: String = "",
+    val wifiSecurity: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
     /** Channels seen in the last scan — feeds the channel chip row. */
     val wifiChannels: List<Int> = emptyList(),
     /** Timestamp of the last completed WiFi scan cycle (countdown basis). */
@@ -136,9 +137,15 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** WiFi Analyzer chips (per-session). A live run re-filters next cycle. */
-    fun setWifiBand(v: String) = _state.update { it.copy(wifiBand = v) }
+    fun toggleWifiBand(v: String) = _state.update {
+        val cur = it.wifiBand
+        it.copy(wifiBand = if (v in cur) cur - v else cur + v)
+    }
     fun setWifiChannel(v: Int) = _state.update { it.copy(wifiChannel = v) }
-    fun setWifiSecurity(v: String) = _state.update { it.copy(wifiSecurity = v) }
+    fun toggleWifiSecurity(v: String) = _state.update {
+        val cur = it.wifiSecurity
+        it.copy(wifiSecurity = if (v in cur) cur - v else cur + v)
+    }
 
     /** Switch List ↔ Channel display; re-runs a live WiFi session so the
      *  new view appears now instead of after the next 30 s tick. */
