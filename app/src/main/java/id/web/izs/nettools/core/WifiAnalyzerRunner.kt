@@ -20,11 +20,12 @@ import kotlin.math.pow
  * One scan cycle every [REFRESH_MS]: read `getScanResults()`, map to
  * [ApInfo], apply the current filters, emit LIVE lines (in-place updates —
  * same mechanism as Globalping probes). Display mode [Filters.display]:
- * `list` = one row per BSSID (RSSI desc, connected row green in the UI);
- * `channel` = per-channel overlap counts (an AP counts toward every channel
- * whose center falls inside the AP's occupied bandwidth), rows sorted by
- * channel number. The target bar is free-text SSID **or** MAC filter; band /
- * channel / security are discrete chips. Stop = cancel the flow.
+ * `list` = one row per BSSID ordered by [Filters.sort] (connected row green
+ * in the UI); `channel` = per-channel overlap counts (an AP counts toward
+ * every channel whose center falls inside the AP's occupied bandwidth), rows
+ * sorted by channel number. The target bar is free-text SSID **or** MAC
+ * filter; band / channel / security are discrete chips. Stop = cancel the
+ * flow.
  *
  * Android throttles `startScan()` to ~4 calls / 2 min; one kick per
  * 30 s cycle sits at that limit, so the call is guarded by
@@ -39,10 +40,16 @@ object WifiAnalyzerRunner {
     const val DISPLAY_LIST = "list"
     const val DISPLAY_CHANNEL = "channel"
 
+    /** List-sort modes for [Filters.sort] (Channel display always sorts by channel no). */
+    const val SORT_RSSI = "rssi"
+    const val SORT_SSID = "ssid"
+    const val SORT_CHANNEL = "channel"
+
     /**
-     * Query + multi-select chips + single-select channel/display.
+     * Query + multi-select chips + single-select channel/display/sort.
      * [band] / [security]: empty set = nothing selected (match nothing);
      * default = every option. Within a chip group items are OR-ed; groups AND.
+     * [sort] only orders the List display; Channel display ignores it.
      */
     data class Filters(
         val query: String = "",   // SSID or BSSID substring, case-insensitive
@@ -50,6 +57,7 @@ object WifiAnalyzerRunner {
         val channel: Int = -1,    // -1 = all
         val security: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
         val display: String = DISPLAY_LIST, // "list" | "channel"
+        val sort: String = SORT_RSSI,       // "rssi" | "ssid" | "channel"
         /** ISO-3166 alpha-2; drives which primary channels are legal to show. */
         val country: String = "ID"
     )
@@ -190,6 +198,80 @@ object WifiAnalyzerRunner {
         if (f.channel >= 0 && channelOf(ap.frequency) != f.channel) return false
         if (f.security.none { it.equals(ap.security, ignoreCase = true) }) return false
         return true
+    }
+
+    /**
+     * Order List-display APs: connected first, then [sort]
+     * (RSSI desc / SSID asc / channel asc); RSSI desc breaks ties.
+     */
+    fun sortAps(aps: List<ApInfo>, sort: String = SORT_RSSI): List<ApInfo> {
+        val byConnected = compareByDescending<ApInfo> { it.connected }
+        val bySort: Comparator<ApInfo> = when (sort) {
+            SORT_SSID -> compareBy { it.ssid.lowercase() }
+            SORT_CHANNEL -> compareBy { channelOf(it.frequency) }
+            else -> compareByDescending { it.rssi }
+        }
+        return aps.sortedWith(byConnected.then(bySort).thenByDescending { it.rssi }.thenBy { it.bssid })
+    }
+
+    // --- List display re-sort over already-emitted LIVE lines ---
+
+    private val RSSI_IN_LINE = Regex("""(-?\d+)\s*dBm""")
+    private val CH_IN_LINE = Regex("""ch\s*(\d+)""")
+    private val MAC_KEY = Regex("""(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2}""")
+
+    /** True for a List-view LIVE AP block (`LIVE bssid\nSSID…\nMAC…`), not `ch:N`. */
+    fun isApLiveLine(line: String): Boolean {
+        if (!line.startsWith(GlobalpingRunner.LIVE)) return false
+        val nl = line.indexOf('\n')
+        if (nl < 0) return false
+        return MAC_KEY.matches(line.substring(GlobalpingRunner.LIVE.length, nl))
+    }
+
+    private fun apLineBody(line: String): String = GlobalpingRunner.displayOf(line)
+
+    /** SSID column of a formatted AP line (line 1, first 20 chars). */
+    fun apLineSsid(line: String): String =
+        apLineBody(line).substringBefore('\n').take(20).trim()
+
+    /** Parsed RSSI (`-60 dBm`) of a formatted AP line. */
+    fun apLineRssi(line: String): Int =
+        RSSI_IN_LINE.find(apLineBody(line))?.groupValues?.get(1)?.toIntOrNull() ?: Int.MIN_VALUE
+
+    /** Parsed primary channel (`ch  6`) of a formatted AP line. */
+    fun apLineChannel(line: String): Int =
+        CH_IN_LINE.find(apLineBody(line))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+    /** LIVE key (BSSID) of an AP line, or empty. */
+    fun apLineBssid(line: String): String =
+        line.substringAfter(GlobalpingRunner.LIVE).substringBefore('\n')
+
+    /**
+     * Re-order LIVE AP blocks inside [lines] for [sort] without touching
+     * plain lines (header / notices) or Channel-view `ch:N` rows.
+     * Slots occupied by AP lines are refilled in sorted order; everything
+     * else keeps its index. [connBssid] (if any) stays on top.
+     */
+    fun reorderApLines(
+        lines: List<String>,
+        sort: String = SORT_RSSI,
+        connBssid: String = ""
+    ): List<String> {
+        val slots = lines.indices.filter { isApLiveLine(lines[it]) }
+        if (slots.size < 2) return lines
+        val cmp = compareBy<String> { line ->
+            if (connBssid.isNotEmpty() && apLineBssid(line).equals(connBssid, true)) 0 else 1
+        }.then(
+            when (sort) {
+                SORT_SSID -> compareBy<String> { apLineSsid(it).lowercase() }
+                SORT_CHANNEL -> compareBy({ apLineChannel(it) }, { -apLineRssi(it) })
+                else -> compareByDescending<String> { apLineRssi(it) }
+            }
+        ).thenBy { apLineBssid(it) }
+        val ordered = slots.map { lines[it] }.sortedWith(cmp)
+        return lines.toMutableList().also { out ->
+            slots.forEachIndexed { i, idx -> out[idx] = ordered[i] }
+        }
     }
 
     /**
@@ -376,7 +458,7 @@ object WifiAnalyzerRunner {
                 // Associated BSSID feeds the UI's green row highlight.
                 onConnected(connBssid.orEmpty())
 
-                val matching = raw.filter { matches(it, f) }.sortedByDescending { it.rssi }
+                val matching = sortAps(raw.filter { matches(it, f) }, f.sort)
                 // Chip list follows band/ssid/security but ignores the channel
                 // chip itself: seed every valid primary of the selected bands
                 // so options stay complete even with no APs on air.

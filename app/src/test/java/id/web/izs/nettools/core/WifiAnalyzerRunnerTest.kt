@@ -367,4 +367,77 @@ class WifiAnalyzerRunnerTest {
         assertFalse(line1.contains("aa:bb:cc:dd:ee:ff"))
         assertTrue(line2.startsWith("aa:bb:cc:dd:ee:ff"))
     }
+
+    // --- sort / re-sort ---
+
+    @Test
+    fun sortApsConnectedThenRssiSsidChannel() {
+        val a = ap(bssid = "aa:aa:aa:aa:aa:01", ssid = "Bravo", rssi = -40, freq = 2437)
+        val b = ap(bssid = "aa:aa:aa:aa:aa:02", ssid = "alpha", rssi = -70, freq = 2412)
+        val c = ap(bssid = "aa:aa:aa:aa:aa:03", ssid = "Charlie", rssi = -50, freq = 5180, connected = true)
+        val raw = listOf(b, c, a)
+
+        assertEquals(
+            listOf("aa:aa:aa:aa:aa:03", "aa:aa:aa:aa:aa:01", "aa:aa:aa:aa:aa:02"),
+            WifiAnalyzerRunner.sortAps(raw, WifiAnalyzerRunner.SORT_RSSI).map { it.bssid }
+        )
+        assertEquals(
+            listOf("aa:aa:aa:aa:aa:03", "aa:aa:aa:aa:aa:02", "aa:aa:aa:aa:aa:01"),
+            WifiAnalyzerRunner.sortAps(raw, WifiAnalyzerRunner.SORT_SSID).map { it.bssid }
+        )
+        assertEquals(
+            listOf("aa:aa:aa:aa:aa:03", "aa:aa:aa:aa:aa:02", "aa:aa:aa:aa:aa:01"),
+            WifiAnalyzerRunner.sortAps(raw, WifiAnalyzerRunner.SORT_CHANNEL).map { it.bssid }
+        )
+    }
+
+    @Test
+    fun reorderApLinesSortsWithoutTouchingPlainOrChannelRows() {
+        val weak = "${GlobalpingRunner.LIVE}aa:aa:aa:aa:aa:01\n" +
+            WifiAnalyzerRunner.formatAp(ap(bssid = "aa:aa:aa:aa:aa:01", ssid = "Weak", rssi = -80))
+        val strong = "${GlobalpingRunner.LIVE}aa:aa:aa:aa:aa:02\n" +
+            WifiAnalyzerRunner.formatAp(ap(bssid = "aa:aa:aa:aa:aa:02", ssid = "Strong", rssi = -30))
+        val mid = "${GlobalpingRunner.LIVE}aa:aa:aa:aa:aa:03\n" +
+            WifiAnalyzerRunner.formatAp(ap(bssid = "aa:aa:aa:aa:aa:03", ssid = "Mid", rssi = -55))
+        val header = "== WiFi Analyzer =="
+        val notice = ";; 3 APs on air"
+        val chRow = "${GlobalpingRunner.LIVE}ch:6\nch   6  2.4G    1 AP  █"
+        // First-fetch order is deliberately wrong vs RSSI.
+        val lines = listOf(header, weak, mid, strong, notice, chRow)
+
+        val byRssi = WifiAnalyzerRunner.reorderApLines(lines, WifiAnalyzerRunner.SORT_RSSI)
+        assertEquals(header, byRssi[0])
+        assertEquals(notice, byRssi[4])
+        assertEquals(chRow, byRssi[5]) // Channel row never moves / never sorts as AP
+        assertEquals(
+            listOf("Strong", "Mid", "Weak"),
+            byRssi.filter { WifiAnalyzerRunner.isApLiveLine(it) }
+                .map { WifiAnalyzerRunner.apLineSsid(it) }
+        )
+
+        val bySsid = WifiAnalyzerRunner.reorderApLines(lines, WifiAnalyzerRunner.SORT_SSID)
+        assertEquals(
+            listOf("Mid", "Strong", "Weak"),
+            bySsid.filter { WifiAnalyzerRunner.isApLiveLine(it) }
+                .map { WifiAnalyzerRunner.apLineSsid(it) }
+        )
+
+        val byConn = WifiAnalyzerRunner.reorderApLines(
+            lines, WifiAnalyzerRunner.SORT_RSSI, connBssid = "aa:aa:aa:aa:aa:01"
+        )
+        assertEquals("Weak", WifiAnalyzerRunner.apLineSsid(byConn[1]))
+    }
+
+    @Test
+    fun apLineParsersReadFormattedRows() {
+        val line = "${GlobalpingRunner.LIVE}aa:bb:cc:dd:ee:ff\n" +
+            WifiAnalyzerRunner.formatAp(ap(ssid = "Office", rssi = -60, freq = 2437))
+        assertEquals("aa:bb:cc:dd:ee:ff", WifiAnalyzerRunner.apLineBssid(line))
+        assertEquals("Office", WifiAnalyzerRunner.apLineSsid(line))
+        assertEquals(-60, WifiAnalyzerRunner.apLineRssi(line))
+        assertEquals(6, WifiAnalyzerRunner.apLineChannel(line))
+        assertTrue(WifiAnalyzerRunner.isApLiveLine(line))
+        assertFalse(WifiAnalyzerRunner.isApLiveLine("${GlobalpingRunner.LIVE}ch:6\nch   6"))
+        assertFalse(WifiAnalyzerRunner.isApLiveLine("plain notice"))
+    }
 }

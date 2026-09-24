@@ -84,6 +84,9 @@ data class HomeUiState(
     val wifiConnBssid: String = "",
     /** Display mode: WifiAnalyzerRunner.DISPLAY_LIST | DISPLAY_CHANNEL. */
     val wifiDisplay: String = WifiAnalyzerRunner.DISPLAY_LIST,
+    /** List-sort: WifiAnalyzerRunner.SORT_RSSI | SORT_SSID | SORT_CHANNEL.
+     *  Session-only; Channel display ignores it (always channel no). */
+    val wifiSort: String = WifiAnalyzerRunner.SORT_RSSI,
     /** Session-only: collapse the home tool grid (always shown on app start). */
     val hideToolGrid: Boolean = false
 )
@@ -168,6 +171,9 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         it.copy(wifiSecurity = if (v in cur) cur - v else cur + v)
     }
 
+    /** List sort order (RSSI / SSID / channel). Session-only like Display. */
+    fun setWifiSort(v: String) = _state.update { it.copy(wifiSort = v) }
+
     /** Switch List ↔ Channel display; re-runs a live WiFi session so the
      *  new view appears now instead of after the next 30 s tick. */
     fun setWifiDisplay(v: String) {
@@ -222,6 +228,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         channel = _state.value.wifiChannel,
         security = _state.value.wifiSecurity,
         display = _state.value.wifiDisplay,
+        sort = _state.value.wifiSort,
         country = wifiCountry
     )
 

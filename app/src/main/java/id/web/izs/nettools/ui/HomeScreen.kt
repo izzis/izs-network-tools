@@ -362,6 +362,39 @@ fun HomeScreen(
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.clearMessage() }
     }
+    // WiFi List display: re-sort LIVE AP blocks for the active sort chip
+    // (connected first, then RSSI/SSID/channel). Plain lines and Channel rows
+    // keep their slots. Keys survive content updates so scroll can re-anchor.
+    val displayLines = remember(
+        state.lines, state.wifiSort, state.wifiCycles, state.wifiDisplay,
+        state.tool, state.wifiConnBssid
+    ) {
+        if (state.tool == Tool.WIFIANALYZER && state.wifiDisplay == WifiAnalyzerRunner.DISPLAY_LIST) {
+            WifiAnalyzerRunner.reorderApLines(state.lines, state.wifiSort, state.wifiConnBssid)
+        } else state.lines
+    }
+    val displayKeyed = remember(displayLines) {
+        val counts = mutableMapOf<String, Int>()
+        displayLines.map { line ->
+            val base = if (line.startsWith(GlobalpingRunner.LIVE)) line.substringBefore('\n')
+            else "p:$line"
+            val n = (counts[base] ?: 0) + 1
+            counts[base] = n
+            (if (n == 1) base else "$base#$n") to line
+        }
+    }
+    // First-visible key from the previous layout pass (still valid when this
+    // composition introduces a new displayKeyed). Re-sort keeps the viewport
+    // on that AP instead of jumping to the new index-0 row.
+    val preAnchorKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key
+    LaunchedEffect(displayKeyed) {
+        if (state.tool != Tool.WIFIANALYZER || state.wifiCycles == 0) return@LaunchedEffect
+        val key = preAnchorKey ?: return@LaunchedEffect
+        val idx = displayKeyed.indexOfFirst { it.first == key }
+        if (idx >= 0 && idx != listState.firstVisibleItemIndex) {
+            listState.scrollToItem(idx)
+        }
+    }
     LaunchedEffect(state.lines.size) {
         if (state.lines.isEmpty()) return@LaunchedEffect
         // WiFi Analyzer: follow the bottom only for the first fill; once a
@@ -745,8 +778,10 @@ fun HomeScreen(
                 // Filters as a Settings-style 2-row block: dimension tabs on
                 // top, values for the active dimension below — fixed height
                 // no matter how many filter kinds exist. Display (rightmost)
-                // = List (AP rows) or Channel (overlap counts). SSIDs stay
-                // free text in the target bar (names are too random to enumerate).
+                // = List/Channel on the left · "Sort:" + RSSI/SSID/Ch pinned
+                // right (List only; Channel always sorts by channel no).
+                // SSIDs stay free text in the target bar (names are too
+                // random to enumerate).
                 var wifiFilterDim by remember { mutableStateOf(0) }
                 PrimaryTabRow(selectedTabIndex = wifiFilterDim) {
                     listOf("Band", "Channel", "Security", "Display").forEachIndexed { i, name ->
@@ -782,14 +817,45 @@ fun HomeScreen(
                         selected = state.wifiSecurity,
                         onToggle = vm::toggleWifiSecurity
                     )
-                    else -> WifiOptionRow(
-                        options = listOf(
+                    else -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(
                             WifiAnalyzerRunner.DISPLAY_LIST to "List",
                             WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
-                        ),
-                        selected = state.wifiDisplay,
-                        onSelect = vm::setWifiDisplay
-                    )
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiDisplay,
+                                onClick = { vm.setWifiDisplay(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "Sort:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        listOf(
+                            WifiAnalyzerRunner.SORT_RSSI to "RSSI",
+                            WifiAnalyzerRunner.SORT_SSID to "SSID",
+                            WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiSort,
+                                onClick = { vm.setWifiSort(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -869,7 +935,7 @@ fun HomeScreen(
                         Spacer(Modifier.height(4.dp))
                         SelectionContainer(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                items(state.lines) { raw ->
+                                items(displayKeyed, key = { it.first }) { (_, raw) ->
                                     // WiFi AP blocks get bottom margin so each
                                     // SSID+MAC pair is a distinct visual group.
                                     val shown = GlobalpingRunner.displayOf(raw)
