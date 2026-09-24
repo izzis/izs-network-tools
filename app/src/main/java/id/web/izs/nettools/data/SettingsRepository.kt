@@ -54,7 +54,6 @@ class SettingsRepository(private val context: Context) {
         val LAST_TARGET = stringPreferencesKey("last_target")
         val TOOL_ORDER = stringPreferencesKey("tool_order")
         val DISABLED_TOOLS = stringPreferencesKey("disabled_tools")
-        val HIDE_TOOL_GRID = intPreferencesKey("hide_tool_grid")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -90,8 +89,7 @@ class SettingsRepository(private val context: Context) {
             colorSchemes = decodeSchemes(p[K.SCHEMES]),
             schemeName = p[K.SCHEME_NAME] ?: "",
             toolOrder = decodeStrings(p[K.TOOL_ORDER], AppSettings().toolOrder),
-            disabledTools = decodeStrings(p[K.DISABLED_TOOLS], AppSettings().disabledTools.toList()).toSet(),
-            hideToolGrid = (p[K.HIDE_TOOL_GRID] ?: 0) == 1
+            disabledTools = decodeStrings(p[K.DISABLED_TOOLS], AppSettings().disabledTools.toList()).toSet()
         )
     }
 
@@ -127,7 +125,6 @@ class SettingsRepository(private val context: Context) {
             p[K.SCHEME_NAME] = s.schemeName
             p[K.TOOL_ORDER] = json.encodeToString(s.toolOrder)
             p[K.DISABLED_TOOLS] = json.encodeToString(s.disabledTools.toList())
-            p[K.HIDE_TOOL_GRID] = if (s.hideToolGrid) 1 else 0
         }
     }
 
