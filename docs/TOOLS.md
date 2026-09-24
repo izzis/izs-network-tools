@@ -18,6 +18,7 @@ through the privileged system `ping` binary.
 | IP Scan | parallel `ping -c1` over IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines with IP + hostname (system reverse DNS, then explicit PTR against the active network's own DNS servers, then NetBIOS, then a targeted mDNS query straight at the host itself); neighbor MAC + `[gw]` flag toggleable in Scan settings (default off) + compact RTO ranges (offline lines toggleable, default off) |
 | Loop | L2 storm check (gateway ping burst — count settable in Scan settings, default 10 — DUP/RTT/loss + `/proc/net/arp` flap + RX flood rate via TrafficStats, `/proc/net/dev` fallback) + L3 TTL-ping trace with confirmed-loop early-stop (empty target = auto gateway, hold for L2/L3/Both; L3 skipped when L2 already confirms a storm) |
 | Neighbor | three listen phases sharing the Scan timeout: MNDP refresh to `255.255.255.255:5678/udp` (MAC + identity + version + board + IP, `(no IP)` when the device has none) + mDNS service enumeration on `224.0.0.251:5353` + SSDP `M-SEARCH` on `239.255.255.250:1900`; needs no target and no local IP |
+| WiFi Analyzer | `WifiManager.getScanResults()` re-read every 30 s (active `startScan()` throttled to the same cadence); one live row per BSSID — SSID, signal bar, dBm, channel, band, security, `*` on the connected AP — rows update in place, `(gone)` when the AP drops off; target bar = free-text SSID substring filter (optional), chips below filter band / channel / security (AND); no target needed |
 
 ## Known rootless limits
 
@@ -74,6 +75,13 @@ through the privileged system `ping` binary.
   root (their CDP/LLDP are pure-L2 frames). Binding UDP :5678/:5353 fails
   honestly if another listener holds the port; mDNS/SSDP need the WiFi
   multicast lock (auto-held during the run).
+- WiFi Analyzer needs a runtime grant (Nearby devices on Android 13+,
+  Location before — one prompt on first Run) and Location (GPS) switched
+  on system-wide, or the OS returns zero scan results; without root it
+  only sees what the phone's radio hears (no wired hosts, no hidden SSIDs
+  that never beacon). Android throttles active scans to ~4 per 2 minutes —
+  the 30 s cycle sits at that limit, so rows between kicks read the OS
+  cache (the system also rescans on its own while WiFi is up).
 
 ## Output colors
 

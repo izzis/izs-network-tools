@@ -66,7 +66,10 @@ data class AppSettings(
      *  missing from the list are appended in enum order (forward-compatible). */
     val toolOrder: List<String> = Tool.entries.map { it.name },
     /** Tools hidden from the home grid (Tool names). At least one must stay enabled. */
-    val disabledTools: Set<String> = setOf(Tool.HEADERS.name, Tool.CERT.name)
+    val disabledTools: Set<String> = setOf(Tool.HEADERS.name, Tool.CERT.name, Tool.NEIGHBOR.name),
+    /** Collapse the home tool grid so the terminal gets more height.
+     *  The top-bar button then shows the active tool name instead of "Hide". */
+    val hideToolGrid: Boolean = false
 )
 
 object IpInfoPresets {
@@ -156,6 +159,7 @@ enum class Tool(val title: String) {
     LOOP("Loop"),
     CERT("Cert"),
     NEIGHBOR("Neighbor"),
+    WIFIANALYZER("WiFi Analyzer"),
     SWEEP("IP Scan");
 
     companion object {

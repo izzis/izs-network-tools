@@ -24,6 +24,7 @@ import id.web.izs.nettools.core.PortChecker
 import id.web.izs.nettools.core.TargetParser
 import id.web.izs.nettools.core.TraceRunner
 import id.web.izs.nettools.core.WhoisRdapClient
+import id.web.izs.nettools.core.WifiAnalyzerRunner
 import id.web.izs.nettools.data.SettingsRepository
 import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.SavedHost
@@ -64,7 +65,15 @@ data class HomeUiState(
     val saved: List<SavedHost> = emptyList(),
     val recent: List<String> = emptyList(),
     val dropExpanded: Boolean = false,
-    val isTargetSaved: Boolean = false
+    val isTargetSaved: Boolean = false,
+    /** WiFi Analyzer chip filters (per-session, like Dig record type). */
+    val wifiBand: String = "",
+    val wifiChannel: Int = -1,
+    val wifiSecurity: String = "",
+    /** Channels seen in the last scan — feeds the channel chip row. */
+    val wifiChannels: List<Int> = emptyList(),
+    /** Timestamp of the last completed WiFi scan cycle (countdown basis). */
+    val lastRefreshAt: Long = 0L
 )
 
 class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
@@ -118,12 +127,25 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** WiFi Analyzer chips (per-session). A live run re-filters next cycle. */
+    fun setWifiBand(v: String) = _state.update { it.copy(wifiBand = v) }
+    fun setWifiChannel(v: Int) = _state.update { it.copy(wifiChannel = v) }
+    fun setWifiSecurity(v: String) = _state.update { it.copy(wifiSecurity = v) }
+
+    private fun wifiFilters() = WifiAnalyzerRunner.Filters(
+        ssid = _state.value.target.trim(),
+        band = _state.value.wifiBand,
+        channel = _state.value.wifiChannel,
+        security = _state.value.wifiSecurity
+    )
+
     /** Tap a tool = run it immediately (except IP Scan and Loop: too heavy
      *  to trigger by accident, they need an explicit Run press). Tapping again re-runs. */
     fun selectAndRun(t: Tool) {
         if (_state.value.running) return
         setTool(t)
-        if (t == Tool.SWEEP || t == Tool.LOOP) return
+        // Heavy or permission-gated: select first, explicit Run presses the button.
+        if (t == Tool.SWEEP || t == Tool.LOOP || t == Tool.WIFIANALYZER) return
         run()
     }
     /** Loop detection mode (hold the Loop tool to change). Per-session, like scopes. */
@@ -145,6 +167,15 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun setGlobalCountry(c: String) = _state.update { it.copy(globalCountry = c.trim().uppercase().take(2)) }
     fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
     fun clearMessage() = _state.update { it.copy(message = null) }
+    fun setMessage(m: String) = _state.update { it.copy(message = m) }
+
+    /** Top-bar Hide/Show: collapse the tool grid for more terminal height. */
+    fun toggleToolGrid() {
+        viewModelScope.launch {
+            val s = _state.value.settings
+            repo.saveSettings(s.copy(hideToolGrid = !s.hideToolGrid))
+        }
+    }
 
     fun pickTarget(host: String) {
         setTarget(host)
@@ -260,7 +291,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun stop() {
         job?.cancel()
         job = null
-        _state.update { it.copy(running = false, progress = null) }
+        _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L) }
     }
 
     /** Best-effort WiFi handle for the Neighbor multicast phases; null = they proceed anyway. */
@@ -283,15 +314,16 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun run() {
         val st = _state.value
         val rawTarget = st.target.trim()
-        // My IP, LAN sweep, Neighbor and Loop work without a target
-        // (Loop uses the gateway, Neighbor just listens).
-        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && rawTarget.isEmpty()) {
+        // My IP, LAN sweep, Neighbor, Loop and WiFi Analyzer work without a
+        // target (Loop uses the gateway, Neighbor listens, WiFi scans the air;
+        // the WiFi target bar is an optional SSID filter).
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && st.tool != Tool.WIFIANALYZER && rawTarget.isEmpty()) {
             _state.update { it.copy(message = "Enter a target first (IP / host)") }
             return
         }
         if (st.running) return
         val parsed = TargetParser.parse(rawTarget)
-        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && parsed.host.isEmpty()) {
+        if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && st.tool != Tool.WIFIANALYZER && parsed.host.isEmpty()) {
             _state.update { it.copy(message = "Invalid target") }
             return
         }
@@ -319,6 +351,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 LoopRunner.LoopMode.L3_ONLY -> "L3 loop trace"
                 LoopRunner.LoopMode.BOTH -> "L2+L3"
             }
+            Tool.WIFIANALYZER -> "wifi scan ${WifiAnalyzerRunner.REFRESH_MS / 1000}s"
         }
         // The blue "== ... ==" line is the single intro: it already carries tool,
         // target, backend and time, so per-runner echo lines are dropped in collect().
@@ -330,17 +363,19 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.SWEEP -> rawTarget.ifEmpty { "auto /24" }
             Tool.NEIGHBOR -> "LAN broadcast"
             Tool.LOOP -> rawTarget.ifEmpty { "auto gateway" }
+            Tool.WIFIANALYZER -> rawTarget.ifEmpty { "all APs" }
             Tool.HEADERS -> rawTarget.ifEmpty { "this device" }
             Tool.MYIP -> "this device"
             else -> parsed.host.ifEmpty { "this device" } + portSuffix
         }
         val header = "== ${st.tool.title} $headerTarget [via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
-        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis()) }
-        if (st.tool != Tool.SWEEP && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
+        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) System.currentTimeMillis() else it.lastRefreshAt) }
+        if (st.tool != Tool.SWEEP && st.tool != Tool.WIFIANALYZER && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
-        // target bar, so it never overwrites; empty sweep keeps the old one.
-        if (st.tool != Tool.MYIP && rawTarget.isNotEmpty()) viewModelScope.launch { repo.saveLastTarget(rawTarget) }
+        // target bar, so it never overwrites; empty sweep keeps the old one;
+        // WiFi SSID filter is session-only (not a host).
+        if (st.tool != Tool.MYIP && st.tool != Tool.WIFIANALYZER && rawTarget.isNotEmpty()) viewModelScope.launch { repo.saveLastTarget(rawTarget) }
 
         val onProgress: (String) -> Unit = { msg -> _state.update { it.copy(progress = msg) } }
         val flow = when (st.tool) {
@@ -359,6 +394,14 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.SWEEP -> IpScan.sweep(rawTarget, s.timeoutMs, onProgress, s.maxParallel, s.scanShowOffline, s.scanShowMac, dnsServers())
             Tool.NEIGHBOR -> NeighborRunner.discover(wifiManager(), onProgress, s.timeoutMs)
             Tool.LOOP -> LoopRunner.run(rawTarget, st.loopMode, s.maxHops, s.timeoutMs, s.loopPingCount, onProgress)
+            Tool.WIFIANALYZER -> WifiAnalyzerRunner.scan(
+                wifi = wifiManager(),
+                filters = { wifiFilters() },
+                onScanDone = {
+                    _state.update { it.copy(lastRefreshAt = System.currentTimeMillis()) }
+                },
+                onChannels = { ch -> _state.update { it.copy(wifiChannels = ch) } }
+            )
         }
         job = viewModelScope.launch {
             flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
@@ -367,6 +410,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                     // Loop verdict lines feed the banners above the console.
                     val loopVerdict = if (st.tool == Tool.LOOP) LoopDetector.verdictOfLine(line) else null
                     val stormVerdict = if (st.tool == Tool.LOOP) StormDetector.verdictOfLine(line) else null
+                    // Clear the WiFi "0 APs / no match" notice once a later
+                    // cycle shows results again (they are plain lines, not LIVE).
                     _state.update { cur ->
                         // Live-update lines ("key\ntext") replace the earlier
                         // line with the same key in place; plain lines append.
@@ -380,15 +425,26 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                             }
                             cur.copy(lines = next.takeLast(2000))
                         } else {
+                            var lines = cur.lines
+                            if (st.tool == Tool.WIFIANALYZER &&
+                                (line.startsWith(";; 0 APs") ||
+                                    (line.startsWith(";; ") && line.contains("APs on air")))
+                            ) {
+                                // One AP-count notice at a time: drop the previous.
+                                lines = lines.filterNot {
+                                    it.startsWith(";; 0 APs") ||
+                                        (it.startsWith(";; ") && it.contains("APs on air"))
+                                }
+                            }
                             cur.copy(
-                                lines = (cur.lines + line).takeLast(2000),
+                                lines = (lines + line).takeLast(2000),
                                 loopVerdict = loopVerdict ?: cur.loopVerdict,
                                 stormVerdict = stormVerdict ?: cur.stormVerdict
                             )
                         }
                     }
                 }
-            _state.update { it.copy(running = false, progress = null) }
+            _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L) }
         }
     }
 
@@ -418,6 +474,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 line.startsWith(";; mDNS discovery ") ||
                 line.startsWith(";; SSDP discovery ")
             Tool.LOOP -> false
+            Tool.WIFIANALYZER -> line.startsWith(";; refresh every")
         }
     }
 

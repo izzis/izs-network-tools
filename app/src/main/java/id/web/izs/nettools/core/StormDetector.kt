@@ -155,8 +155,9 @@ object StormDetector {
         val flood = stats.rxPps != null && stats.rxPps >= FLOOD_PPS && txQuiet
         val heavySignals = buildList {
             if (lossHeavy) add("${"%.0f".format(loss)}% loss ($lost/${stats.sent} lost)")
-            if (rttBad && p95v != null) add("p95 ${"%.0f".format(p95v)} ms")
-            if (flood) add("RX flood ${"%.0f".format(stats.rxPps ?: 0.0)} pps")
+            // rttBad already implies p95v != null; flood already implies rxPps != null.
+            if (rttBad) add("p95 ${"%.0f".format(p95v)} ms")
+            if (flood) add("RX flood ${"%.0f".format(stats.rxPps)} pps")
             if (flap != null) add("ARP flap ${flap.macs.joinToString(" <-> ")}")
             if (stats.dups == 1) add("1 duplicate reply (DUP!)")
         }
@@ -179,7 +180,7 @@ object StormDetector {
         if (flood) {
             return StormResult.Suspected(
                 "Suspected storm: gateway $gatewayIp answering while this device " +
-                    "receives ${"%.0f".format(stats.rxPps ?: 0.0)} packets/sec " +
+                    "receives ${"%.0f".format(stats.rxPps)} packets/sec " +
                     "(one-way flood present, but replies still arrive — a second " +
                     "signal is needed to confirm a storm)."
             )
