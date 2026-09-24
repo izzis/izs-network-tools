@@ -12,12 +12,13 @@ import kotlinx.coroutines.flow.flowOn
  * WiFi Analyzer: live AP list, no root, no target host.
  *
  * One scan cycle every [REFRESH_MS]: read `getScanResults()`, map to
- * [ApInfo], apply the current filters, emit one LIVE line per BSSID
- * (in-place RSSI updates — same mechanism as Globalping probes). The
- * connected AP's row is colored green in the UI (no marker, list order =
- * RSSI only). The target bar is free-text SSID **or** MAC filter;
- * band/channel/security are discrete chips. Stop = cancel the flow
- * (existing button).
+ * [ApInfo], apply the current filters, emit LIVE lines (in-place updates —
+ * same mechanism as Globalping probes). Display mode [Filters.display]:
+ * `list` = one row per BSSID (RSSI desc, connected row green in the UI);
+ * `channel` = per-channel overlap counts (an AP counts toward every channel
+ * whose center falls inside the AP's occupied bandwidth), rows sorted by
+ * channel number. The target bar is free-text SSID **or** MAC filter; band /
+ * channel / security are discrete chips. Stop = cancel the flow.
  *
  * Android throttles `startScan()` to ~4 calls / 2 min; one kick per
  * 30 s cycle sits at that limit, so the call is guarded by
@@ -28,21 +29,37 @@ object WifiAnalyzerRunner {
 
     const val REFRESH_MS = 30_000
 
+    /** Display modes for [Filters.display]. */
+    const val DISPLAY_LIST = "list"
+    const val DISPLAY_CHANNEL = "channel"
+
     /** Band/channel/security chips + free-text query (SSID or MAC). */
     data class Filters(
         val query: String = "",   // SSID or BSSID substring, case-insensitive
         val band: String = "",    // "", "2.4", "5", "6"
         val channel: Int = -1,    // -1 = all
-        val security: String = "" // "", "WPA3", "WPA2", "WPA", "WEP", "open"
+        val security: String = "",// "", "WPA3", "WPA2", "WPA", "WEP", "open"
+        val display: String = DISPLAY_LIST // "list" | "channel"
     )
 
     data class ApInfo(
         val bssid: String,
         val ssid: String,
         val rssi: Int,
-        val frequency: Int, // MHz
+        val frequency: Int, // MHz (primary)
         val security: String,
-        val connected: Boolean = false
+        val connected: Boolean = false,
+        /** Center frequency (MHz); 0 = fall back to [frequency]. */
+        val centerFreq: Int = 0,
+        /** Occupied bandwidth in MHz (20/40/80/160). */
+        val widthMhz: Int = 20
+    )
+
+    /** One row of the Channel display: APs whose spectrum overlaps this channel. */
+    data class ChannelCrowd(
+        val channel: Int,
+        val count: Int,
+        val band: String
     )
 
     // --- pure helpers (unit-tested) ---
@@ -60,6 +77,33 @@ object WifiAnalyzerRunner {
         freqMhz in 4915..5895 -> (freqMhz - 5000) / 5
         freqMhz in 5925..7125 -> (freqMhz - 5950) / 5
         else -> 0
+    }
+
+    /** Center frequency of [ch] in [band] ("2.4" / "5" / "6"), or null if n/a. */
+    fun channelFreqOf(ch: Int, band: String): Int? = when {
+        band == "2.4" && ch == 14 -> 2484
+        band == "2.4" && ch in 1..13 -> 2407 + 5 * ch
+        band == "5" && ch >= 1 -> 5000 + 5 * ch
+        band == "6" && ch >= 1 -> 5950 + 5 * ch
+        else -> null
+    }
+
+    /** Frequency range this AP occupies (center ± width/2). */
+    fun occupiedRange(ap: ApInfo): IntRange {
+        val center = ap.centerFreq.takeIf { it > 0 } ?: ap.frequency
+        val half = ap.widthMhz / 2
+        return (center - half)..(center + half)
+    }
+
+    /** True when [channelFreq] (channel center) falls inside the AP's spectrum. */
+    fun overlaps(ap: ApInfo, channelFreq: Int): Boolean = channelFreq in occupiedRange(ap)
+
+    /** ScanResult.channelWidth → MHz (0=20, 1=40, 2=80, 3=160, 4=80+80). */
+    fun widthMhzOf(channelWidth: Int): Int = when (channelWidth) {
+        1 -> 40
+        2 -> 80
+        3, 4 -> 160
+        else -> 20
     }
 
     fun securityOf(capabilities: String): String = when {
@@ -118,6 +162,55 @@ object WifiAnalyzerRunner {
         return "$line1\n$line2"
     }
 
+    /**
+     * Per-channel overlap counts for the Channel display: an AP is counted on
+     * every channel whose center frequency lies inside the AP's occupied
+     * bandwidth (so ch 1 + ch 3 APs both hit ch 2 — same model as VREM).
+     * Rows are sorted by channel number only. Empty 2.4 GHz channels 1–14 are
+     * always listed so a quiet band still shows its landscape.
+     */
+    fun channelCrowding(aps: List<ApInfo>): List<ChannelCrowd> {
+        val pairs = mutableSetOf<Pair<String, Int>>()
+        for (ch in 1..14) pairs += "2.4" to ch
+        for (ap in aps) {
+            val band = bandOf(ap.frequency)
+            if (band == "?") continue
+            val range = occupiedRange(ap)
+            val primary = channelOf(ap.frequency)
+            // Walk a window wide enough for 160 MHz (±32 × 5 MHz channels).
+            val lo = (primary - 32).coerceAtLeast(1)
+            val hi = primary + 32
+            for (ch in lo..hi) {
+                val f = channelFreqOf(ch, band) ?: continue
+                if (f in range) pairs += band to ch
+            }
+        }
+        return pairs
+            .map { (band, ch) ->
+                val f = channelFreqOf(ch, band) ?: return@map null
+                ChannelCrowd(
+                    channel = ch,
+                    count = aps.count { overlaps(it, f) },
+                    band = band
+                )
+            }
+            .filterNotNull()
+            .sortedWith(compareBy({ it.channel }, { it.band }))
+    }
+
+    /** One Channel-display row: `ch  N  bandG  K APs  ███…`. */
+    fun formatChannelCrowd(c: ChannelCrowd): String {
+        val ch = "ch ${c.channel.toString().padStart(3)}"
+        val band = "${c.band}G".padEnd(4)
+        val n = when {
+            c.count == 0 -> "   0 AP"
+            c.count == 1 -> "   1 AP"
+            else -> "${c.count} APs".padStart(7)
+        }
+        val bar = if (c.count <= 0) "" else "  " + "█".repeat(c.count.coerceAtMost(32))
+        return "$ch  $band  $n$bar"
+    }
+
     // --- runner ---
 
     @Suppress("DEPRECATION")
@@ -163,7 +256,9 @@ object WifiAnalyzerRunner {
                             rssi = r.level,
                             frequency = r.frequency,
                             security = securityOf(r.capabilities.orEmpty()),
-                            connected = connBssid != null && r.BSSID.equals(connBssid, ignoreCase = true)
+                            connected = connBssid != null && r.BSSID.equals(connBssid, ignoreCase = true),
+                            centerFreq = r.centerFreq0,
+                            widthMhz = widthMhzOf(r.channelWidth)
                         )
                     }.filter { it.bssid.isNotEmpty() }
                 } catch (e: SecurityException) {
@@ -186,22 +281,29 @@ object WifiAnalyzerRunner {
                         .map { channelOf(it.frequency) }.distinct().sorted()
                 )
 
-                // APs that vanished from the radio entirely → one (gone) note.
-                val rawNow = raw.map { it.bssid }.toSet()
-                for (bssid in shown.filter { it !in rawNow }) {
-                    rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it, gone = true)}") }
-                    shown.remove(bssid)
-                    rawCache.remove(bssid)
-                }
-                // APs still on air but knocked out by the current filter.
-                for (bssid in shown.filter { b -> matching.none { it.bssid == b } }) {
-                    rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it)}  (filter)") }
-                    shown.remove(bssid)
-                }
-                // Live rows (replace in place on later cycles).
-                for (ap in matching) {
-                    emit("${GlobalpingRunner.LIVE}${ap.bssid}\n${formatAp(ap)}")
-                    shown.add(ap.bssid)
+                if (f.display == DISPLAY_CHANNEL) {
+                    // Overlap view: one LIVE row per channel, sorted by channel no.
+                    for (c in channelCrowding(matching)) {
+                        emit("${GlobalpingRunner.LIVE}ch:${c.channel}\n${formatChannelCrowd(c)}")
+                    }
+                } else {
+                    // List view: APs that vanished from the radio entirely → one (gone) note.
+                    val rawNow = raw.map { it.bssid }.toSet()
+                    for (bssid in shown.filter { it !in rawNow }) {
+                        rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it, gone = true)}") }
+                        shown.remove(bssid)
+                        rawCache.remove(bssid)
+                    }
+                    // APs still on air but knocked out by the current filter.
+                    for (bssid in shown.filter { b -> matching.none { it.bssid == b } }) {
+                        rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it)}  (filter)") }
+                        shown.remove(bssid)
+                    }
+                    // Live rows (replace in place on later cycles).
+                    for (ap in matching) {
+                        emit("${GlobalpingRunner.LIVE}${ap.bssid}\n${formatAp(ap)}")
+                        shown.add(ap.bssid)
+                    }
                 }
                 if (raw.isEmpty()) {
                     // OEMs often log "no location permission" and return an empty

@@ -13,8 +13,12 @@ class WifiAnalyzerRunnerTest {
         rssi: Int = -60,
         freq: Int = 2437,
         security: String = "WPA2",
-        connected: Boolean = false
-    ) = WifiAnalyzerRunner.ApInfo(bssid, ssid, rssi, freq, security, connected)
+        connected: Boolean = false,
+        centerFreq: Int = 0,
+        widthMhz: Int = 20
+    ) = WifiAnalyzerRunner.ApInfo(
+        bssid, ssid, rssi, freq, security, connected, centerFreq, widthMhz
+    )
 
     // --- band / channel ---
 
@@ -87,6 +91,87 @@ class WifiAnalyzerRunnerTest {
                 WifiAnalyzerRunner.Filters(band = "5", channel = 6)
             )
         )
+    }
+
+    // --- channel overlap counts (Display = Channel) ---
+
+    @Test
+    fun channelCrowdingCountsOverlapSortedByChannel() {
+        // 20 MHz ranges: ch1 2402–2422, ch6 2427–2447, ch11 2452–2472, ch36 5170–5190
+        val aps = listOf(
+            ap(bssid = "aa:aa:aa:aa:aa:01", freq = 2412), // ch 1
+            ap(bssid = "aa:aa:aa:aa:aa:02", freq = 2437), // ch 6
+            ap(bssid = "aa:aa:aa:aa:aa:03", freq = 2462), // ch 11
+            ap(bssid = "aa:aa:aa:aa:aa:04", freq = 2462),
+            ap(bssid = "aa:aa:aa:aa:aa:05", freq = 2462),
+            ap(bssid = "aa:aa:aa:aa:aa:06", freq = 5180)  // ch 36
+        )
+        val rows = WifiAnalyzerRunner.channelCrowding(aps)
+        // sort by channel number only; 20 MHz ch36 (5170–5190) also covers
+        // centers of ch34–ch38 — same inclusive-range model as VREM.
+        assertEquals(
+            listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 34, 35, 36, 37, 38),
+            rows.map { it.channel }
+        )
+        // ch1 AP covers centers ch1–ch3; ch6 covers ch4–ch8; ch11 covers ch9–ch13
+        assertEquals(1, rows.first { it.channel == 1 }.count)
+        assertEquals(1, rows.first { it.channel == 2 }.count)
+        assertEquals(1, rows.first { it.channel == 3 }.count)
+        assertEquals(1, rows.first { it.channel == 4 }.count)  // only via ch6 AP (2427 edge)
+        assertEquals(1, rows.first { it.channel == 5 }.count)
+        assertEquals(1, rows.first { it.channel == 6 }.count)
+        assertEquals(3, rows.first { it.channel == 11 }.count) // three ch11 APs
+        assertEquals(0, rows.first { it.channel == 14 }.count)
+        assertEquals(1, rows.first { it.channel == 36 }.count)
+        assertEquals("2.4", rows.first { it.channel == 1 }.band)
+        assertEquals("5", rows.first { it.channel == 36 }.band)
+    }
+
+    @Test
+    fun channelCrowdingAdjacentPrimaryChannelsBothHitMiddle() {
+        // VREM case: list has no primary ch2 AP, but ch1+ch3 both overlap ch2.
+        val aps = listOf(
+            ap(bssid = "aa:aa:aa:aa:aa:01", freq = 2412), // ch 1 → 2402–2422
+            ap(bssid = "aa:aa:aa:aa:aa:02", freq = 2422)  // ch 3 → 2412–2432
+        )
+        val rows = WifiAnalyzerRunner.channelCrowding(aps)
+        assertEquals(2, rows.first { it.channel == 2 }.count)
+        assertEquals(2, rows.first { it.channel == 1 }.count)
+        assertEquals(2, rows.first { it.channel == 3 }.count)
+        // sorted by channel, not by count
+        assertEquals(
+            (1..14).toList(),
+            rows.map { it.channel }.filter { it <= 14 }
+        )
+    }
+
+    @Test
+    fun channelCrowdingWideApCoversNeighborChannels() {
+        // 40 MHz AP centered on ch6 (2437): 2417–2457 → ch2..ch10
+        val aps = listOf(
+            ap(bssid = "aa:aa:aa:aa:aa:01", freq = 2437, centerFreq = 2437, widthMhz = 40)
+        )
+        val rows = WifiAnalyzerRunner.channelCrowding(aps)
+        val covered = rows.filter { it.count > 0 && it.channel in 1..14 }.map { it.channel }
+        assertEquals((2..10).toList(), covered)
+    }
+
+    @Test
+    fun formatChannelCrowdShowsCountAndBar() {
+        val busy = WifiAnalyzerRunner.formatChannelCrowd(
+            WifiAnalyzerRunner.ChannelCrowd(channel = 6, count = 3, band = "2.4")
+        )
+        assertTrue(busy.startsWith("ch   6"))
+        assertTrue(busy.contains("2.4G"))
+        assertTrue(busy.contains("3 APs"))
+        assertTrue(busy.contains("███"))
+
+        val empty = WifiAnalyzerRunner.formatChannelCrowd(
+            WifiAnalyzerRunner.ChannelCrowd(channel = 149, count = 0, band = "5")
+        )
+        assertTrue(empty.startsWith("ch 149"))
+        assertTrue(empty.contains("0 AP"))
+        assertFalse(empty.contains("█"))
     }
 
     // --- formatting ---

@@ -77,7 +77,11 @@ data class HomeUiState(
     /** Completed WiFi scan cycles this run — 0 = still filling the first batch. */
     val wifiCycles: Int = 0,
     /** BSSID of the associated AP — colors that row green in the console. */
-    val wifiConnBssid: String = ""
+    val wifiConnBssid: String = "",
+    /** Display mode: WifiAnalyzerRunner.DISPLAY_LIST | DISPLAY_CHANNEL. */
+    val wifiDisplay: String = WifiAnalyzerRunner.DISPLAY_LIST,
+    /** Session-only: collapse the home tool grid (always shown on app start). */
+    val hideToolGrid: Boolean = false
 )
 
 class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
@@ -136,11 +140,34 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun setWifiChannel(v: Int) = _state.update { it.copy(wifiChannel = v) }
     fun setWifiSecurity(v: String) = _state.update { it.copy(wifiSecurity = v) }
 
+    /** Switch List ↔ Channel display; re-runs a live WiFi session so the
+     *  new view appears now instead of after the next 30 s tick. */
+    fun setWifiDisplay(v: String) {
+        val cur = _state.value
+        if (cur.wifiDisplay == v) return
+        _state.update { it.copy(wifiDisplay = v) }
+        if (cur.tool != Tool.WIFIANALYZER) return
+        // Drop the old view's LIVE rows (and count notices) so modes never
+        // mix under the same blue header.
+        _state.update { s ->
+            s.copy(lines = s.lines.filter {
+                !it.startsWith(GlobalpingRunner.LIVE) &&
+                    !it.startsWith(";; 0 APs") &&
+                    !(it.startsWith(";; ") && it.contains("APs on air"))
+            })
+        }
+        if (cur.running) {
+            stop()
+            run()
+        }
+    }
+
     private fun wifiFilters() = WifiAnalyzerRunner.Filters(
         query = _state.value.target.trim(),
         band = _state.value.wifiBand,
         channel = _state.value.wifiChannel,
-        security = _state.value.wifiSecurity
+        security = _state.value.wifiSecurity,
+        display = _state.value.wifiDisplay
     )
 
     /** Tap a tool = run it immediately (except IP Scan and Loop: too heavy
@@ -173,12 +200,10 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun clearMessage() = _state.update { it.copy(message = null) }
     fun setMessage(m: String) = _state.update { it.copy(message = m) }
 
-    /** Top-bar Hide/Show: collapse the tool grid for more terminal height. */
+    /** Top-bar Hide/Show: collapse the tool grid for more terminal height.
+     *  Session-only — not persisted; next app start shows the grid again. */
     fun toggleToolGrid() {
-        viewModelScope.launch {
-            val s = _state.value.settings
-            repo.saveSettings(s.copy(hideToolGrid = !s.hideToolGrid))
-        }
+        _state.update { it.copy(hideToolGrid = !it.hideToolGrid) }
     }
 
     fun pickTarget(host: String) {

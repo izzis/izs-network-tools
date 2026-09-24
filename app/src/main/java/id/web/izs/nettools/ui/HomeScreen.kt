@@ -443,9 +443,9 @@ fun HomeScreen(
                     // the grid on tap so you can still switch tools.
                     TextButton(onClick = { vm.toggleToolGrid() }) {
                         Text(
-                            if (state.settings.hideToolGrid) state.tool.title else "Hide",
+                            if (state.hideToolGrid) state.tool.title else "Hide",
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (state.settings.hideToolGrid) {
+                            color = if (state.hideToolGrid) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -589,7 +589,7 @@ fun HomeScreen(
             var serverTool by remember { mutableStateOf<Tool?>(null) }
             var scopeTool by remember { mutableStateOf<Tool?>(null) }
             var loopModeTool by remember { mutableStateOf<Tool?>(null) }
-            if (!state.settings.hideToolGrid) {
+            if (!state.hideToolGrid) {
                 ToolSelector(
                     selected = state.tool,
                     enabled = !state.running,
@@ -738,16 +738,17 @@ fun HomeScreen(
             if (state.tool == Tool.WIFIANALYZER) {
                 Text(
                     "Live nearby APs, re-scanned every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s - " +
-                        "type part of an SSID above to match it (optional)",
+                        "type part of an SSID or MAC above to match (optional)",
                     style = MaterialTheme.typography.bodySmall
                 )
                 // Filters as a Settings-style 2-row block: dimension tabs on
                 // top, values for the active dimension below — fixed height
-                // no matter how many filter kinds exist. SSIDs stay free text
-                // in the target bar (names are too random to enumerate).
+                // no matter how many filter kinds exist. Display (rightmost)
+                // = List (AP rows) or Channel (overlap counts). SSIDs stay
+                // free text in the target bar (names are too random to enumerate).
                 var wifiFilterDim by remember { mutableStateOf(0) }
                 PrimaryTabRow(selectedTabIndex = wifiFilterDim) {
-                    listOf("Band", "Channel", "Security").forEachIndexed { i, name ->
+                    listOf("Band", "Channel", "Security", "Display").forEachIndexed { i, name ->
                         Tab(
                             selected = wifiFilterDim == i,
                             onClick = { wifiFilterDim = i },
@@ -771,13 +772,21 @@ fun HomeScreen(
                             onSelect = vm::setWifiChannel
                         )
                     }
-                    else -> WifiOptionRow(
+                    2 -> WifiOptionRow(
                         options = listOf(
                             "" to "All", "WPA3" to "WPA3", "WPA2" to "WPA2",
                             "WPA" to "WPA", "WEP" to "WEP", "open" to "open"
                         ),
                         selected = state.wifiSecurity,
                         onSelect = vm::setWifiSecurity
+                    )
+                    else -> WifiOptionRow(
+                        options = listOf(
+                            WifiAnalyzerRunner.DISPLAY_LIST to "List",
+                            WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
+                        ),
+                        selected = state.wifiDisplay,
+                        onSelect = vm::setWifiDisplay
                     )
                 }
             }
