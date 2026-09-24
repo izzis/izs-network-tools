@@ -68,8 +68,9 @@ data class HomeUiState(
     val recent: List<String> = emptyList(),
     val dropExpanded: Boolean = false,
     val isTargetSaved: Boolean = false,
-    /** WiFi Analyzer chip filters (per-session, like Dig record type).
-     *  Band / security are multi-select; default = every option. */
+    /** WiFi Analyzer chip filters. Band is persisted (DataStore) across launches;
+     *  channel / security / display are session-only. Band + security are
+     *  multi-select; default = every option. */
     val wifiBand: Set<String> = setOf("2.4", "5", "6"),
     val wifiChannel: Int = -1,
     val wifiSecurity: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
@@ -116,6 +117,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             val last = repo.lastTarget.first()
             if (last.isNotEmpty() && _state.value.target.isEmpty()) setTarget(last)
         }
+        // Restore the last Band multi-select (e.g. 2.4+5 only, no 6 GHz).
+        viewModelScope.launch {
+            val bands = repo.wifiBands.first()
+            _state.update { it.copy(wifiBand = bands) }
+        }
     }
 
     fun setTarget(v: String) {
@@ -138,11 +144,24 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** WiFi Analyzer chips (per-session). A live run re-filters next cycle. */
-    fun toggleWifiBand(v: String) = _state.update {
-        val cur = it.wifiBand
-        it.copy(wifiBand = if (v in cur) cur - v else cur + v)
+    /** Toggle a Band chip; the choice is saved for the next launch. */
+    fun toggleWifiBand(v: String) {
+        var next: Set<String> = emptySet()
+        _state.update {
+            val cur = it.wifiBand
+            next = if (v in cur) cur - v else cur + v
+            it.copy(wifiBand = next)
+        }
+        viewModelScope.launch { repo.saveWifiBands(next) }
     }
+
+    /** "Select All" on the Band row: restore the default (every band). */
+    fun selectAllWifiBands() {
+        val all = setOf("2.4", "5", "6")
+        _state.update { it.copy(wifiBand = all) }
+        viewModelScope.launch { repo.saveWifiBands(all) }
+    }
+
     fun setWifiChannel(v: Int) = _state.update { it.copy(wifiChannel = v) }
     fun toggleWifiSecurity(v: String) = _state.update {
         val cur = it.wifiSecurity

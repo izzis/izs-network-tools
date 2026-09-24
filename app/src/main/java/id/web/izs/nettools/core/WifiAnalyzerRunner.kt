@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.log10
+import kotlin.math.pow
 
 /**
  * WiFi Analyzer: live AP list, no root, no target host.
@@ -200,8 +204,20 @@ object WifiAnalyzerRunner {
     }
 
     /**
+     * Estimated distance in meters (free-space path loss, same formula as
+     * VREM WiFiAnalyzer — Wikipedia FSPL): from frequency + RSSI only.
+     * Rough indoor estimate; walls/furniture shift it a lot.
+     */
+    fun calculateDistance(frequencyMhz: Int, rssi: Int): Double =
+        10.0.pow((27.55 - 20 * log10(frequencyMhz.toDouble()) + abs(rssi)) / 20.0)
+
+    /** Display form used next to dBm: `~1.2m` (always `.` decimal, one digit). */
+    fun formatDistance(frequencyMhz: Int, rssi: Int): String =
+        String.format(Locale.US, "~%.1fm", calculateDistance(frequencyMhz, rssi))
+
+    /**
      * Two-line console row (monospace, no indent):
-     *   line 1: SSID · signal stair · dBm
+     *   line 1: SSID · signal stair · dBm · ~distance
      *   line 2: MAC · channel · band · security · `(gone)`/`(filter)`
      * Hidden SSIDs show `(hidden)` on line 1 — the MAC on line 2 still
      * uniquely identifies the AP. Connected is a UI color (green), not a marker.
@@ -213,7 +229,8 @@ object WifiAnalyzerRunner {
             append(barsOf(ap.rssi).padEnd(8)) // reserve stair width so dBm lines up
             append(' ')
             append(ap.rssi.toString().padStart(4))
-            append(" dBm")
+            append(" dBm  ")
+            append(formatDistance(ap.frequency, ap.rssi).padStart(7)) // ~999.9m max common
         }
         val mark = if (gone) " (gone)" else ""
         // padEnd so band/security stay aligned across rows

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -762,7 +763,8 @@ fun HomeScreen(
                     0 -> WifiMultiOptionRow(
                         options = listOf("2.4" to "2.4", "5" to "5", "6" to "6"),
                         selected = state.wifiBand,
-                        onToggle = vm::toggleWifiBand
+                        onToggle = vm::toggleWifiBand,
+                        onSelectAll = vm::selectAllWifiBands
                     )
                     1 -> {
                         val chans = listOf(-1) + state.wifiChannels
@@ -1260,29 +1262,46 @@ private fun <T> WifiOptionRow(
     }
 }
 
-/** Multi-select chip strip (Band / Security): each item toggles on/off. */
+/** Multi-select chip strip (Band / Security): each item toggles on/off.
+ *  [onSelectAll] (Band only) pins a "Select All" action at the far right —
+ *  chips stay scrollable on the left. */
 @Composable
 private fun WifiMultiOptionRow(
     options: List<Pair<String, String>>,
     selected: Set<String>,
-    onToggle: (String) -> Unit
+    onToggle: (String) -> Unit,
+    onSelectAll: (() -> Unit)? = null
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+        modifier = Modifier.fillMaxWidth()
     ) {
-        options.forEach { (value, label) ->
-            FilterChip(
-                selected = value in selected,
-                onClick = { onToggle(value) },
-                label = {
-                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                },
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f, fill = true)
+                .horizontalScroll(rememberScrollState())
+        ) {
+            options.forEach { (value, label) ->
+                FilterChip(
+                    selected = value in selected,
+                    onClick = { onToggle(value) },
+                    label = {
+                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    },
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+        }
+        if (onSelectAll != null) {
+            TextButton(
+                onClick = onSelectAll,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 modifier = Modifier.height(28.dp)
-            )
+            ) {
+                Text("Select All", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
         }
     }
 }

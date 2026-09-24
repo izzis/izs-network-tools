@@ -54,6 +54,7 @@ class SettingsRepository(private val context: Context) {
         val LAST_TARGET = stringPreferencesKey("last_target")
         val TOOL_ORDER = stringPreferencesKey("tool_order")
         val DISABLED_TOOLS = stringPreferencesKey("disabled_tools")
+        val WIFI_BANDS = stringPreferencesKey("wifi_bands")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -143,6 +144,15 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveLastTarget(v: String) {
         context.prefs.edit { it[K.LAST_TARGET] = v }
+    }
+
+    /** WiFi Analyzer Band multi-select, restored on launch. Fresh install = all bands. */
+    val wifiBands: Flow<Set<String>> = context.prefs.data.map { p ->
+        decodeStrings(p[K.WIFI_BANDS], listOf("2.4", "5", "6")).toSet()
+    }
+
+    suspend fun saveWifiBands(bands: Set<String>) {
+        context.prefs.edit { it[K.WIFI_BANDS] = json.encodeToString(bands.toList().sorted()) }
     }
 
     private fun decodeColors(s: String?): Map<String, String> {

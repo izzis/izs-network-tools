@@ -325,11 +325,13 @@ class WifiAnalyzerRunnerTest {
     fun formatIsTwoLinesSsidThenMac() {
         val block = WifiAnalyzerRunner.formatAp(ap(connected = true))
         val (line1, line2) = block.split("\n", limit = 2)
-        // line 1: SSID · stair · dBm (connected is a green UI color, no marker)
+        // line 1: SSID · stair · dBm · ~distance (connected is green UI, no marker)
         assertTrue(line1.startsWith("Office"))
         assertFalse(line1.contains("aa:bb:cc:dd:ee:ff")) // MAC not on line 1
         assertTrue(line1.contains("-60"))
         assertTrue(line1.contains("▁"))
+        assertTrue(line1.contains("~")) // FSPL distance estimate
+        assertTrue(line1.contains("m"))
         assertFalse(line1.endsWith("*"))
         // line 2: MAC · ch · band · sec (no indent)
         assertFalse(line2.startsWith(" "))
@@ -340,6 +342,21 @@ class WifiAnalyzerRunnerTest {
 
         val gone = WifiAnalyzerRunner.formatAp(ap(), gone = true)
         assertTrue(gone.endsWith("(gone)"))
+    }
+
+    @Test
+    fun calculateDistanceMatchesVremFspl() {
+        // Same formula + expected values as VREM WiFiUtilsTest.calculateDistance.
+        fun d(freq: Int, rssi: Int) =
+            java.text.DecimalFormat("#.##").format(
+                WifiAnalyzerRunner.calculateDistance(freq, rssi)
+            )
+        assertEquals("0.62", d(2437, -36))
+        assertEquals("1.23", d(2437, -42))
+        assertEquals("246.34", d(2432, -88))
+        assertEquals("350.85", d(2412, -91))
+        assertEquals("~0.6m", WifiAnalyzerRunner.formatDistance(2437, -36))
+        assertEquals("~1.2m", WifiAnalyzerRunner.formatDistance(2437, -42))
     }
 
     @Test
