@@ -506,34 +506,42 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                     // Clear the WiFi "0 APs / no match" notice once a later
                     // cycle shows results again (they are plain lines, not LIVE).
                     _state.update { cur ->
-                        // Live-update lines ("key\ntext") replace the earlier
-                        // line with the same key in place; plain lines append.
-                        val key = line.substringBefore('\n')
-                        if (line.startsWith(GlobalpingRunner.LIVE)) {
-                            val idx = cur.lines.indexOfLast { l -> l.startsWith("$key\n") }
-                            val next = if (idx >= 0) {
-                                cur.lines.toMutableList().also { it[idx] = line }
-                            } else {
-                                cur.lines + line
+                        // REMOVE drops the stored LIVE line with that key;
+                        // LIVE lines ("key\ntext") replace in place; plain append.
+                        when {
+                            line.startsWith(GlobalpingRunner.REMOVE) -> {
+                                val liveKey =
+                                    "${GlobalpingRunner.LIVE}${line.substringAfter(GlobalpingRunner.REMOVE)}"
+                                cur.copy(lines = cur.lines.filterNot { it.startsWith("$liveKey\n") })
                             }
-                            cur.copy(lines = next.takeLast(2000))
-                        } else {
-                            var lines = cur.lines
-                            if (st.tool == Tool.WIFIANALYZER &&
-                                (line.startsWith(";; 0 APs") ||
-                                    (line.startsWith(";; ") && line.contains("APs on air")))
-                            ) {
-                                // One AP-count notice at a time: drop the previous.
-                                lines = lines.filterNot {
-                                    it.startsWith(";; 0 APs") ||
-                                        (it.startsWith(";; ") && it.contains("APs on air"))
+                            line.startsWith(GlobalpingRunner.LIVE) -> {
+                                val key = line.substringBefore('\n')
+                                val idx = cur.lines.indexOfLast { l -> l.startsWith("$key\n") }
+                                val next = if (idx >= 0) {
+                                    cur.lines.toMutableList().also { it[idx] = line }
+                                } else {
+                                    cur.lines + line
                                 }
+                                cur.copy(lines = next.takeLast(2000))
                             }
-                            cur.copy(
-                                lines = (lines + line).takeLast(2000),
-                                loopVerdict = loopVerdict ?: cur.loopVerdict,
-                                stormVerdict = stormVerdict ?: cur.stormVerdict
-                            )
+                            else -> {
+                                var lines = cur.lines
+                                if (st.tool == Tool.WIFIANALYZER &&
+                                    (line.startsWith(";; 0 APs") ||
+                                        (line.startsWith(";; ") && line.contains("APs on air")))
+                                ) {
+                                    // One AP-count notice at a time: drop the previous.
+                                    lines = lines.filterNot {
+                                        it.startsWith(";; 0 APs") ||
+                                            (it.startsWith(";; ") && it.contains("APs on air"))
+                                    }
+                                }
+                                cur.copy(
+                                    lines = (lines + line).takeLast(2000),
+                                    loopVerdict = loopVerdict ?: cur.loopVerdict,
+                                    stormVerdict = stormVerdict ?: cur.stormVerdict
+                                )
+                            }
                         }
                     }
                 }
@@ -548,7 +556,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
      *  a single header line. Lines carrying unique info (resolved IPs, counts,
      *  warnings, errors) never match and are kept. */
     private fun isEchoLine(tool: Tool, st: HomeUiState, line: String): Boolean {
-        if (line.startsWith(GlobalpingRunner.LIVE)) return false
+        if (line.startsWith(GlobalpingRunner.LIVE) || line.startsWith(GlobalpingRunner.REMOVE)) return false
         if ((tool == Tool.PING && st.pingGlobal) || (tool == Tool.TRACE && st.traceGlobal))
             return line.startsWith(";; global ")
         return when (tool) {

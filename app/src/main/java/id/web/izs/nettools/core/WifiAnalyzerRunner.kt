@@ -410,6 +410,7 @@ object WifiAnalyzerRunner {
         emit(";; refresh every ${REFRESH_MS / 1000}s — tap \"next\" to refresh now, Stop ends the run, chips re-filter on the next cycle")
         val shown = mutableSetOf<String>()      // BSSIDs currently live on screen
         val rawCache = mutableMapOf<String, ApInfo>() // last raw sighting (for gone/filter notes)
+        val pendingRemoval = mutableSetOf<String>()   // (gone) rows awaiting auto-remove next cycle
         var lastStartScanMs = 0L
         try {
             // Kick the first scan and give the OS a moment to fill the cache.
@@ -479,12 +480,22 @@ object WifiAnalyzerRunner {
                         emit("${GlobalpingRunner.LIVE}ch:${c.channel}\n${formatChannelCrowd(c)}")
                     }
                 } else {
-                    // List view: APs that vanished from the radio entirely → one (gone) note.
+                    // List view: (gone) note from last cycle → drop the row now,
+                    // or re-enter shown if the AP came back (live/filter below
+                    // then rewrites the row in place).
                     val rawNow = raw.map { it.bssid }.toSet()
+                    for (bssid in pendingRemoval.toList()) {
+                        pendingRemoval.remove(bssid)
+                        if (bssid in rawNow) shown.add(bssid)
+                        else emit("${GlobalpingRunner.REMOVE}$bssid")
+                    }
+                    // APs that vanished from the radio entirely → one (gone)
+                    // note, auto-removed on the next cycle.
                     for (bssid in shown.filter { it !in rawNow }) {
                         rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it, gone = true)}") }
                         shown.remove(bssid)
                         rawCache.remove(bssid)
+                        pendingRemoval.add(bssid)
                     }
                     // APs still on air but knocked out by the current filter.
                     for (bssid in shown.filter { b -> matching.none { it.bssid == b } }) {

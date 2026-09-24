@@ -52,6 +52,11 @@ object GlobalpingRunner {
      *  (used for in-progress placeholders). Never shown; stripped for display. */
     const val LIVE = "\u001E"
 
+    /** Remove marker: `REMOVE + bssid` deletes the stored LIVE line keyed by
+     *  that bssid (WiFi `(gone)` rows auto-dropped after one refresh cycle).
+     *  Consumed in the ViewModel — never stored, never shown. */
+    const val REMOVE = "\u001D"
+
     fun displayOf(line: String): String =
         if (line.startsWith(LIVE)) line.substringAfter('\n') else line
 
