@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.flowOn
  * One scan cycle every [REFRESH_MS]: read `getScanResults()`, map to
  * [ApInfo], apply the current filters, emit one LIVE line per BSSID
  * (in-place RSSI updates — same mechanism as Globalping probes). The
- * target bar is a free-text SSID filter; band/channel/security are
- * discrete chips in the UI. Stop = cancel the flow (existing button).
+ * connected AP's row is colored green in the UI (no marker, list order =
+ * RSSI only). The target bar is free-text SSID **or** MAC filter;
+ * band/channel/security are discrete chips. Stop = cancel the flow
+ * (existing button).
  *
  * Android throttles `startScan()` to ~4 calls / 2 min; one kick per
  * 30 s cycle sits at that limit, so the call is guarded by
@@ -26,12 +28,12 @@ object WifiAnalyzerRunner {
 
     const val REFRESH_MS = 30_000
 
-    /** Channel/security/band chips. SSID lives in the target bar (free text). */
+    /** Band/channel/security chips + free-text query (SSID or MAC). */
     data class Filters(
-        val ssid: String = "",
-        val band: String = "",     // "", "2.4", "5", "6"
-        val channel: Int = -1,     // -1 = all
-        val security: String = ""  // "", "WPA3", "WPA2", "WPA", "WEP", "open"
+        val query: String = "",   // SSID or BSSID substring, case-insensitive
+        val band: String = "",    // "", "2.4", "5", "6"
+        val channel: Int = -1,    // -1 = all
+        val security: String = "" // "", "WPA3", "WPA2", "WPA", "WEP", "open"
     )
 
     data class ApInfo(
@@ -71,7 +73,10 @@ object WifiAnalyzerRunner {
     }
 
     fun matches(ap: ApInfo, f: Filters): Boolean {
-        if (f.ssid.isNotEmpty() && !ap.ssid.contains(f.ssid, ignoreCase = true)) return false
+        if (f.query.isNotEmpty() &&
+            !ap.ssid.contains(f.query, ignoreCase = true) &&
+            !ap.bssid.contains(f.query, ignoreCase = true)
+        ) return false
         if (f.band.isNotEmpty() && bandOf(ap.frequency) != f.band) return false
         if (f.channel >= 0 && channelOf(ap.frequency) != f.channel) return false
         if (f.security.isNotEmpty() && !ap.security.equals(f.security, ignoreCase = true)) return false
@@ -91,10 +96,10 @@ object WifiAnalyzerRunner {
 
     /**
      * Two-line console row (monospace, no indent):
-     *   line 1: SSID · signal stair · dBm · `*` if connected
+     *   line 1: SSID · signal stair · dBm
      *   line 2: MAC · channel · band · security · `(gone)`/`(filter)`
      * Hidden SSIDs show `(hidden)` on line 1 — the MAC on line 2 still
-     * uniquely identifies the AP.
+     * uniquely identifies the AP. Connected is a UI color (green), not a marker.
      */
     fun formatAp(ap: ApInfo, gone: Boolean = false): String {
         val name = ap.ssid.ifEmpty { "(hidden)" }.take(20)
@@ -104,13 +109,8 @@ object WifiAnalyzerRunner {
             append(' ')
             append(ap.rssi.toString().padStart(4))
             append(" dBm")
-            if (ap.connected) append(" *")
         }
-        val mark = when {
-            gone -> " (gone)"
-            ap.connected -> "" // already marked on line 1
-            else -> ""
-        }
+        val mark = if (gone) " (gone)" else ""
         // padEnd so band/security stay aligned across rows
         val ch = "ch${channelOf(ap.frequency).toString().padStart(3)}"
         val band = "${bandOf(ap.frequency)}G".padEnd(4)
@@ -125,7 +125,8 @@ object WifiAnalyzerRunner {
         wifi: WifiManager?,
         filters: () -> Filters,
         onScanDone: () -> Unit = {},
-        onChannels: (List<Int>) -> Unit = {}
+        onChannels: (List<Int>) -> Unit = {},
+        onConnected: (String) -> Unit = {}
     ): Flow<String> = flow {
         if (wifi == null) {
             emit("ERROR: WiFi service unavailable")
@@ -148,7 +149,11 @@ object WifiAnalyzerRunner {
             while (true) {
                 val f = filters()
                 @Suppress("DEPRECATION")
-                val connBssid = wifi.connectionInfo?.bssid
+                val info = wifi.connectionInfo
+                // Android reports 02:00:00:00:00:00 when not associated.
+                val connBssid = info?.bssid?.takeIf {
+                    it.isNotEmpty() && it != "02:00:00:00:00:00" && it != "00:00:00:00:00:00"
+                }
                 val raw = try {
                     wifi.scanResults.orEmpty().map { r ->
                         ApInfo(
@@ -169,6 +174,9 @@ object WifiAnalyzerRunner {
                     return@flow
                 }
                 raw.forEach { rawCache[it.bssid] = it }
+
+                // Associated BSSID feeds the UI's green row highlight.
+                onConnected(connBssid.orEmpty())
 
                 val matching = raw.filter { matches(it, f) }.sortedByDescending { it.rssi }
                 // Chip list follows ssid/band/security but ignores the channel

@@ -53,7 +53,7 @@ class WifiAnalyzerRunnerTest {
         assertEquals("open", WifiAnalyzerRunner.securityOf(""))
     }
 
-    // --- filters (OR is only for the SSID field vs nothing; chips are AND) ---
+    // --- filters (free text = SSID OR MAC; chips are AND) ---
 
     @Test
     fun emptyFilterMatchesEverything() {
@@ -62,10 +62,14 @@ class WifiAnalyzerRunnerTest {
     }
 
     @Test
-    fun ssidFilterIsSubstringIgnoreCase() {
-        val f = WifiAnalyzerRunner.Filters(ssid = "office")
+    fun queryMatchesSsidOrMacIgnoreCase() {
+        val f = WifiAnalyzerRunner.Filters(query = "office")
         assertTrue(WifiAnalyzerRunner.matches(ap(ssid = "Office-5G"), f))
         assertFalse(WifiAnalyzerRunner.matches(ap(ssid = "Guest"), f))
+        // same free text hits the MAC instead
+        val byMac = WifiAnalyzerRunner.Filters(query = "AA:BB:CC")
+        assertTrue(WifiAnalyzerRunner.matches(ap(bssid = "aa:bb:cc:dd:ee:ff"), byMac))
+        assertFalse(WifiAnalyzerRunner.matches(ap(bssid = "11:22:33:44:55:66"), byMac))
     }
 
     @Test
@@ -107,12 +111,12 @@ class WifiAnalyzerRunnerTest {
     fun formatIsTwoLinesSsidThenMac() {
         val block = WifiAnalyzerRunner.formatAp(ap(connected = true))
         val (line1, line2) = block.split("\n", limit = 2)
-        // line 1: SSID · stair · dBm · *
+        // line 1: SSID · stair · dBm (connected is a green UI color, no marker)
         assertTrue(line1.startsWith("Office"))
         assertFalse(line1.contains("aa:bb:cc:dd:ee:ff")) // MAC not on line 1
         assertTrue(line1.contains("-60"))
         assertTrue(line1.contains("▁"))
-        assertTrue(line1.endsWith("*"))
+        assertFalse(line1.endsWith("*"))
         // line 2: MAC · ch · band · sec (no indent)
         assertFalse(line2.startsWith(" "))
         assertTrue(line2.startsWith("aa:bb:cc:dd:ee:ff"))
@@ -122,7 +126,6 @@ class WifiAnalyzerRunnerTest {
 
         val gone = WifiAnalyzerRunner.formatAp(ap(), gone = true)
         assertTrue(gone.endsWith("(gone)"))
-        assertFalse(gone.lines()[0].endsWith("*"))
     }
 
     @Test

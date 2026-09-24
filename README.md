@@ -27,7 +27,7 @@ Package: `id.web.izs.nettools`
 | IP Scan   | Ping scanner: single IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines with IP + hostname (MAC + `[gw]` optional via Scan setting, default off) + compact RTO ranges (offline lines optional, default off) |
 | Neighbor  | LAN neighbor discovery, no target needed: MikroTik (MNDP on UDP 5678, even without IP) + local services (mDNS) + UPnP devices (SSDP) |
 | Loop      | L2 broadcast-storm check on the LAN gateway + L3 routing-loop trace (empty = auto gateway, hold to pick L2/L3/Both) |
-| WiFi Analyzer | Live nearby AP list (SSID, signal, channel, band, security) re-scanned every 30 s; optional SSID filter in the target bar + band/channel/security chips; no target needed |
+| WiFi Analyzer | Live nearby AP list (SSID, signal, channel, band, security) re-scanned every 30 s; connected AP row in green; optional SSID/MAC filter in the target bar + band/channel/security chips; no target needed |
 
 Extras: saved favorites + recent targets (max configurable, default 5),
 auto-run on tool pick and on saved-target pick (both toggleable), home tool

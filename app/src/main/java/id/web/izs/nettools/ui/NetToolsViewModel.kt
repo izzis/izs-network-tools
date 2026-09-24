@@ -73,7 +73,11 @@ data class HomeUiState(
     /** Channels seen in the last scan — feeds the channel chip row. */
     val wifiChannels: List<Int> = emptyList(),
     /** Timestamp of the last completed WiFi scan cycle (countdown basis). */
-    val lastRefreshAt: Long = 0L
+    val lastRefreshAt: Long = 0L,
+    /** Completed WiFi scan cycles this run — 0 = still filling the first batch. */
+    val wifiCycles: Int = 0,
+    /** BSSID of the associated AP — colors that row green in the console. */
+    val wifiConnBssid: String = ""
 )
 
 class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
@@ -133,7 +137,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun setWifiSecurity(v: String) = _state.update { it.copy(wifiSecurity = v) }
 
     private fun wifiFilters() = WifiAnalyzerRunner.Filters(
-        ssid = _state.value.target.trim(),
+        query = _state.value.target.trim(),
         band = _state.value.wifiBand,
         channel = _state.value.wifiChannel,
         security = _state.value.wifiSecurity
@@ -316,7 +320,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         val rawTarget = st.target.trim()
         // My IP, LAN sweep, Neighbor, Loop and WiFi Analyzer work without a
         // target (Loop uses the gateway, Neighbor listens, WiFi scans the air;
-        // the WiFi target bar is an optional SSID filter).
+        // the WiFi target bar is an optional SSID/MAC filter).
         if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && st.tool != Tool.WIFIANALYZER && rawTarget.isEmpty()) {
             _state.update { it.copy(message = "Enter a target first (IP / host)") }
             return
@@ -370,11 +374,11 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
         val header = "== ${st.tool.title} $headerTarget [via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
-        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) System.currentTimeMillis() else it.lastRefreshAt) }
+        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) System.currentTimeMillis() else it.lastRefreshAt, wifiCycles = 0, wifiConnBssid = "") }
         if (st.tool != Tool.SWEEP && st.tool != Tool.WIFIANALYZER && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
         // target bar, so it never overwrites; empty sweep keeps the old one;
-        // WiFi SSID filter is session-only (not a host).
+        // WiFi SSID/MAC filter is session-only (not a host).
         if (st.tool != Tool.MYIP && st.tool != Tool.WIFIANALYZER && rawTarget.isNotEmpty()) viewModelScope.launch { repo.saveLastTarget(rawTarget) }
 
         val onProgress: (String) -> Unit = { msg -> _state.update { it.copy(progress = msg) } }
@@ -398,9 +402,10 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 wifi = wifiManager(),
                 filters = { wifiFilters() },
                 onScanDone = {
-                    _state.update { it.copy(lastRefreshAt = System.currentTimeMillis()) }
+                    _state.update { it.copy(lastRefreshAt = System.currentTimeMillis(), wifiCycles = it.wifiCycles + 1) }
                 },
-                onChannels = { ch -> _state.update { it.copy(wifiChannels = ch) } }
+                onChannels = { ch -> _state.update { it.copy(wifiChannels = ch) } },
+                onConnected = { bssid -> _state.update { it.copy(wifiConnBssid = bssid) } }
             )
         }
         job = viewModelScope.launch {

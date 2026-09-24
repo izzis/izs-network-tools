@@ -231,7 +231,9 @@ private fun OutputLine(
     colored: Boolean,
     p: TerminalPalette,
     fontSize: TextUnit,
-    bottomSpacer: Boolean = false
+    bottomSpacer: Boolean = false,
+    /** BSSID of the associated AP — colors that AP's SSID row green. */
+    wifiConnBssid: String = ""
 ) {
     // Live-update bookkeeping ("key\ntext") is never shown.
     val line = GlobalpingRunner.displayOf(line)
@@ -243,14 +245,19 @@ private fun OutputLine(
                 fontFamily = FontFamily.Monospace,
                 fontSize = fontSize
             )
-            // WiFi AP block: line 1 = SSID/signal (bright), line 2 = MAC/ch/band (dim).
+            // WiFi AP block: line 1 = SSID/signal, line 2 = MAC/ch/band (dim).
+            // Connected AP: line 1 is green instead of the usual semantic color.
             line.indexOf('\n').let { nl ->
                 nl > 0 && wifiMacLine.matches(line.substring(nl + 1).trim())
             } -> {
                 val nl = line.indexOf('\n')
+                val mac = line.substring(nl + 1).trim().substringBefore(' ')
+                val titleColor = if (
+                    wifiConnBssid.isNotEmpty() && mac.equals(wifiConnBssid, true)
+                ) p.green else terminalLineColor(line.substring(0, nl), p)
                 Text(
                     buildAnnotatedString {
-                        withStyle(SpanStyle(color = terminalLineColor(line.substring(0, nl), p))) {
+                        withStyle(SpanStyle(color = titleColor)) {
                             append(line.substring(0, nl))
                         }
                         append('\n')
@@ -355,7 +362,12 @@ fun HomeScreen(
         state.message?.let { snack.showSnackbar(it); vm.clearMessage() }
     }
     LaunchedEffect(state.lines.size) {
-        if (state.lines.isNotEmpty()) listState.scrollToItem(state.lines.size - 1)
+        if (state.lines.isEmpty()) return@LaunchedEffect
+        // WiFi Analyzer: follow the bottom only for the first fill; once a
+        // full cycle has run, keep the viewport — LIVE rows replace in place
+        // and a new AP / notice line must not jump the user's position.
+        if (state.tool == Tool.WIFIANALYZER && state.wifiCycles > 0) return@LaunchedEffect
+        listState.scrollToItem(state.lines.size - 1)
     }
 
     // --- WiFi scan permission (first runtime permission in the app) ---
@@ -465,7 +477,7 @@ fun HomeScreen(
                 value = state.target,
                 onValueChange = vm::setTarget,
                 placeholder = {
-                    Text(if (state.tool == Tool.WIFIANALYZER) "SSID filter (optional)" else "Target (IP / host)")
+                    Text(if (state.tool == Tool.WIFIANALYZER) "SSID or MAC filter (optional)" else "Target (IP / host)")
                 },
                 singleLine = true,
                 leadingIcon = {
@@ -810,14 +822,15 @@ fun HomeScreen(
                                 }
                             }
                             // WiFi Analyzer: countdown to the next scan cycle.
+                            // Intrinsic width only — a weight slot here clips
+                            // "next 30s" down to "next 9s"-length space.
                             if (state.tool == Tool.WIFIANALYZER && state.running && wifiCountdown > 0) {
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     "next ${wifiCountdown}s",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = term.green,
-                                    maxLines = 1,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    maxLines = 1
                                 )
                             }
                             Spacer(Modifier.weight(1f))
@@ -853,7 +866,8 @@ fun HomeScreen(
                                         colored = state.settings.coloredOutput,
                                         p = term,
                                         fontSize = state.settings.outputFontSp.sp,
-                                        bottomSpacer = isApBlock
+                                        bottomSpacer = isApBlock,
+                                        wifiConnBssid = state.wifiConnBssid
                                     )
                                 }
                             }
