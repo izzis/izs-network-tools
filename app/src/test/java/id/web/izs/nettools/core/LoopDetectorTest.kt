@@ -34,6 +34,37 @@ class LoopDetectorTest {
     }
 
     @Test
+    fun tinyDominatingContiguousSetIsLoop() {
+        // Rule 3 in isolation: no non-consecutive gap anywhere (rule 1
+        // silent), yet a tiny set of IPs dominates the answered run —
+        // the bridged-ports / short-cycle shape the tool exists to catch.
+        val hops = listOf(
+            hop(1, "10.0.0.1"),
+            hop(2, "10.0.0.1"),
+            hop(3, "10.0.0.2"),
+            hop(4, "10.0.0.2"),
+            hop(5, "10.0.0.3"),
+            hop(6, "10.0.0.3")
+        )
+        val r = LoopDetector.analyze(hops, destReached = false, maxHops = 30)
+        assertTrue(r is LoopResult.Loop)
+        assertTrue((r as LoopResult.Loop).message.contains("3 unique"))
+    }
+
+    @Test
+    fun contiguousPairAloneBelowRule3IsNotLoop() {
+        // Two IPs seen twice but under the 6-answered/3-unique thresholds.
+        val hops = listOf(
+            hop(1, "10.0.0.1"),
+            hop(2, "10.0.0.1"),
+            hop(3, "10.0.0.2"),
+            hop(4, "10.0.0.2")
+        )
+        val r = LoopDetector.analyze(hops, destReached = false, maxHops = 30)
+        assertTrue(r is LoopResult.NoLoop)
+    }
+
+    @Test
     fun nonConsecutiveRepeatIsLoop() {
         val hops = listOf(
             hop(1, "192.168.1.1"),

@@ -109,12 +109,22 @@ object LoopRunner {
         var dups = 0
         var unreachable = false
         val rtts = mutableListOf<Double>()
+        var proc: Process? = null
         try {
-            val proc = ProcessBuilder(
+            proc = ProcessBuilder(
                 ExecUtil.pingBin(), "-c", pingCount.toString(), "-W", waitSec.toString(), gwIp
             ).redirectErrorStream(true).start()
+            // waitFor first: readText() blocks until EOF (= process exit), so a
+            // hung ping would make any later timeout unreachable. ping -c output
+            // is small (<< pipe buffer), so waiting before draining is safe.
+            val timeoutSec = (pingCount * waitSec + 10).toLong()
+            if (!proc.waitFor(timeoutSec, TimeUnit.SECONDS)) {
+                emit("ERROR: gateway ping hung for ${timeoutSec}s — killing it.")
+                return StormResult.Suspected(
+                    "Suspected storm: gateway ping hung (process killed) — cannot judge $gwIp."
+                )
+            }
             val out = proc.inputStream.bufferedReader().readText()
-            proc.waitFor((pingCount * waitSec + 10).toLong(), TimeUnit.SECONDS)
             val statLine = Regex("""(\d+) packets transmitted,\s*(\d+) (?:packets )?received""").find(out)
             if (statLine != null) {
                 sent = statLine.groupValues[1].toIntOrNull() ?: pingCount
@@ -130,10 +140,11 @@ object LoopRunner {
                 }
             }
             if (statLine == null) received = rtts.size
-            try { proc.destroy() } catch (_: Exception) { }
         } catch (e: Exception) {
             emit("ERROR: gateway ping failed: ${e.message}")
             return StormResult.Suspected("Suspected storm: gateway probe crashed mid-run.")
+        } finally {
+            try { proc?.destroy() } catch (_: Exception) { }
         }
         delay(1000)
         emit("-- re-reading ARP table for MAC changes...")

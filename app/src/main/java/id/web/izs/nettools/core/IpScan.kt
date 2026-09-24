@@ -3,7 +3,6 @@ package id.web.izs.nettools.core
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -53,22 +52,53 @@ object IpScan {
         }
     }
 
+    /** The [NetworkInterface] that owns the device's LAN IPv4, if any. */
+    fun lanInterface(): NetworkInterface? {
+        val own = ownNetwork() ?: return null
+        return try {
+            NetworkInterface.getByInetAddress(InetAddress.getByName(own.ip))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Directed broadcast for [own]'s real prefix. Hardcoding a `.255` suffix
+     * is only correct on /24 — e.g. `192.168.1.50/25` broadcasts to
+     * `192.168.1.127`, not `.255`. Null on /31–/32, which have no broadcast.
+     */
+    fun directedBroadcast(own: OwnNet): String? {
+        val o = octets(own.ip) ?: return null
+        val prefix = own.prefix.toInt()
+        if (prefix < 0 || prefix > 32 || prefix >= 31) return null
+        val ipInt = ((o[0].toLong() shl 24) or (o[1].toLong() shl 16) or (o[2].toLong() shl 8) or o[3].toLong())
+        val mask = (0xFFFFFFFFL shl (32 - prefix)) and 0xFFFFFFFFL
+        val bcast = ipInt or mask.inv()
+        return listOf(24, 16, 8, 0).joinToString(".") { s -> ((bcast shr s) and 0xFF).toInt().toString() }
+    }
+
     /** Single ping. Returns RTT string like "0.42 ms", or null when unreachable. */
     private fun pingOnce(ip: String, waitSec: Int): String? {
+        var proc: Process? = null
         return try {
-            val proc = ProcessBuilder(ExecUtil.pingBin(), "-c", "1", "-W", waitSec.toString(), ip)
+            proc = ProcessBuilder(ExecUtil.pingBin(), "-c", "1", "-W", waitSec.toString(), ip)
                 .redirectErrorStream(true)
                 .start()
-            val out = proc.inputStream.bufferedReader().readText()
+            // waitFor first — readText() blocks until EOF (= process exit), which
+            // would make any later timeout unreachable on a hung ping. ping -c1
+            // output is tiny (<< pipe buffer), so waiting first is safe.
             val finished = proc.waitFor((waitSec + 2).toLong(), java.util.concurrent.TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
                 return null
             }
+            val out = proc.inputStream.bufferedReader().readText()
             if (proc.exitValue() != 0) return null
             rttRegex.find(out)?.groupValues?.get(1)?.let { "$it ms" } ?: "reply"
         } catch (_: Exception) {
             null
+        } finally {
+            try { proc?.destroy() } catch (_: Exception) { }
         }
     }
 
@@ -207,7 +237,17 @@ object IpScan {
             trySend(";; IP scan on ${parsed.label} [backend: ping -c1 + NetBIOS${if (showMac) " + ARP" else ""}, no root]")
             if (own != null) trySend(";; this device: ${own.ip}/${own.prefix}")
             if (skippedOwn.isNotEmpty()) trySend(";; skipping own IP (${skippedOwn.joinToString(",")})")
-            val gatewayIp = if (showMac) GatewayResolver.resolve()?.ip else null
+            val gw = GatewayResolver.resolve()
+            val gatewayIp = gw?.ip
+            if (gatewayIp != null) {
+                val src = when (gw.source) {
+                    GatewayResolver.Source.ROUTE_TABLE -> "route table"
+                    GatewayResolver.Source.GUESS_DOT_ONE -> "guess .1 — confirm it's your router"
+                }
+                trySend(";; gateway: $gatewayIp [$src]")
+            } else {
+                trySend(";; gateway: not found (no route table, no LAN IPv4)")
+            }
             if (showMac && ArpWatcher.read() == null) trySend(";; note: /proc/net/arp unreadable — UP lines carry no MAC")
             trySend(";; pinging ${targets.size} hosts...\n")
             val done = AtomicInteger(0)
@@ -216,64 +256,59 @@ object IpScan {
             noReply.addAll(targets)
             val sem = Semaphore(maxParallel.coerceIn(8, 256))
             val startedAt = System.currentTimeMillis()
-            val reader = Thread {
-                try {
-                    kotlinx.coroutines.runBlocking {
-                        coroutineScope {
-                            targets.map { ip ->
-                                async(Dispatchers.IO) {
-                                    sem.withPermit {
-                                        val rtt = pingOnce(ip, waitSec)
-                                        if (rtt != null) {
-                                            found.incrementAndGet()
-                                            noReply.remove(ip)
-                                            val name = reverseDns(ip)
-                                                ?: DnsPtr.query(ip, dnsServers)
-                                                ?: NetBios.queryName(ip)
-                                                ?: MdnsDiscover.queryHost(ip)
-                                            // An answered ping always leaves an ARP entry,
-                                            // so the MAC lookup right after is reliable.
-                                            val mac = if (showMac) ArpWatcher.read()?.get(ip)?.takeIf { it.complete }?.mac else null
-                                            trySend(formatUp(ip, name, rtt, mac, showMac && ip == gatewayIp))
-                                        }
-                                        val d = done.incrementAndGet()
-                                        if (d % 25 == 0 || d == targets.size) {
-                                            onProgress?.invoke("Scan $d/${targets.size}...")
-                                        }
-                                    }
+            // Run the sweep as children of the flow's own coroutine — no
+            // detached thread + runBlocking. Cancelling the collecting job
+            // (Stop) now cancels every in-flight ping instead of leaving an
+            // orphan sweep running in the background.
+            try {
+                coroutineScope {
+                    targets.map { ip ->
+                        async(Dispatchers.IO) {
+                            sem.withPermit {
+                                val rtt = pingOnce(ip, waitSec)
+                                if (rtt != null) {
+                                    found.incrementAndGet()
+                                    noReply.remove(ip)
+                                    val name = reverseDns(ip)
+                                        ?: DnsPtr.query(ip, dnsServers)
+                                        ?: NetBios.queryName(ip)
+                                        ?: MdnsDiscover.queryHost(ip)
+                                    // An answered ping always leaves an ARP entry,
+                                    // so the MAC lookup right after is reliable.
+                                    val mac = if (showMac) ArpWatcher.read()?.get(ip)?.takeIf { it.complete }?.mac else null
+                                    trySend(formatUp(ip, name, rtt, mac, ip == gatewayIp))
                                 }
-                            }.awaitAll()
+                                val d = done.incrementAndGet()
+                                if (d % 25 == 0 || d == targets.size) {
+                                    onProgress?.invoke("Scan $d/${targets.size}...")
+                                }
+                            }
                         }
-                    }
-                } catch (_: Exception) {
-                } finally {
-                    val secs = (System.currentTimeMillis() - startedAt) / 1000.0
-                    val up = found.get()
-                    val dead = noReply.sortedBy { ipToLong(it) }
-                    if (showOffline) {
-                        trySend(";; done: $up up, ${dead.size} no-reply in ${"%.1f".format(secs)}s")
-                    } else {
-                        trySend(";; done: $up up in ${"%.1f".format(secs)}s")
-                    }
-                    if (showOffline && dead.isNotEmpty()) {
-                        // Compact RTO list: consecutive IPs collapse to 192.168.0.2-99.
-                        val ranges = compactRanges(dead.map { ipToLong(it) })
-                        val listed = ranges.take(200)
-                        listed.chunked(6).forEach { chunk ->
-                            trySend("RTO: ${chunk.joinToString(", ")}")
-                        }
-                        if (ranges.size > listed.size) trySend("RTO: ... +${ranges.size - listed.size} more ranges")
-                    }
-                    close()
+                    }.awaitAll()
                 }
-            }
-            reader.isDaemon = true
-            reader.start()
-            awaitClose {
-                try {
-                    reader.interrupt()
-                } catch (_: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                trySend("ERROR: scan aborted mid-run.")
+            } finally {
+                val secs = (System.currentTimeMillis() - startedAt) / 1000.0
+                val up = found.get()
+                val dead = noReply.sortedBy { ipToLong(it) }
+                if (showOffline) {
+                    trySend(";; done: $up up, ${dead.size} no-reply in ${"%.1f".format(secs)}s")
+                } else {
+                    trySend(";; done: $up up in ${"%.1f".format(secs)}s")
                 }
+                if (showOffline && dead.isNotEmpty()) {
+                    // Compact RTO list: consecutive IPs collapse to 192.168.0.2-99.
+                    val ranges = compactRanges(dead.map { ipToLong(it) })
+                    val listed = ranges.take(200)
+                    listed.chunked(6).forEach { chunk ->
+                        trySend("RTO: ${chunk.joinToString(", ")}")
+                    }
+                    if (ranges.size > listed.size) trySend("RTO: ... +${ranges.size - listed.size} more ranges")
+                }
+                close()
             }
         }.flowOn(Dispatchers.IO)
 }

@@ -73,6 +73,63 @@ class MdnsTest {
         assertTrue(p.hosts.isEmpty()) // myprinter.local is consumed by the service
     }
 
+    /**
+     * SRV RDATA carries a compression pointer (`C0 0C`-style) whose offset
+     * is relative to the whole message (RFC 1035 §4.1.4), not to a copied-out
+     * RDATA slice — the old parser resolved it against the 2-byte copy after
+     * the port fields, got null, and dropped the host/IP. The PTR target is
+     * written expanded in different case than the SRV owner (as real
+     * responders do): DNS names are case-insensitive, so correlation must
+     * still succeed.
+     */
+    private fun compressedRdataResponse(): ByteArray {
+        val out = mutableListOf<Byte>()
+        fun raw(vararg b: Int) = out.addAll(b.map { it.toByte() })
+        fun u16(v: Int) = raw(v shr 8, v and 0xFF)
+        fun name(vararg labels: String) {
+            for (l in labels) {
+                raw(l.length)
+                out.addAll(l.toByteArray(Charsets.UTF_8).toList())
+            }
+            raw(0)
+        }
+        fun rrHeader(type: Int, rdLen: Int) {
+            u16(type); u16(1); raw(0, 0, 0, 120); u16(rdLen)
+        }
+        raw(0, 0, 0x84, 0x00, 0, 0, 0, 3, 0, 0, 0, 0) // AN=3
+        // 1. A myprinter.local (owner at offset 12 — the pointer target).
+        name("myprinter", "local")
+        rrHeader(1, 4)
+        raw(192, 168, 1, 20)
+        // 2. SRV for the lowercase instance; target = pointer to offset 12.
+        name("printer", "_http", "_tcp", "local")
+        rrHeader(33, 8)
+        raw(0, 0, 0, 0, 0, 80)
+        raw(0xC0, 12)
+        // 3. PTR with an expanded UPPERCASE target: different spelling of
+        // the same instance — correlation must be case-insensitive.
+        name("_http", "_tcp", "local")
+        val upperTarget = listOf("PRINTER", "_HTTP", "_TCP", "LOCAL")
+        val targetLen = upperTarget.sumOf { it.length + 1 } + 1
+        rrHeader(12, targetLen)
+        name(*upperTarget.toTypedArray())
+        return out.toByteArray()
+    }
+
+    @Test
+    fun compressedRdataPointerAndCaseInsensitiveCorrelation() {
+        val r = compressedRdataResponse()
+        val p = MdnsDiscover.parseMessage(r, r.size)
+        assertEquals(1, p.services.size)
+        val s = p.services[0]
+        // PTR target as it appeared on the wire (uppercase)…
+        assertEquals("PRINTER._HTTP._TCP.LOCAL", s.instance)
+        // …still correlates with the lowercase SRV owner + A record.
+        assertEquals("myprinter.local", s.host)
+        assertEquals("192.168.1.20", s.ip)
+        assertEquals(80, s.port)
+    }
+
     @Test
     fun serviceLineFormat() {
         val p = MdnsDiscover.parseMessage(response(), response().size)

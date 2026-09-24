@@ -37,13 +37,15 @@ object SsdpDiscover {
 
     data class Hit(val location: String, val st: String, val usn: String?, val server: String?)
 
+    private val statusOk = Regex("""^HTTP/\d(?:\.\d)?[ \t]+200(?:[ \t]|$)""")
+
     /**
      * Parse one M-SEARCH response. Null unless it is `200 OK` with
      * a LOCATION (a device without a description URL names nothing).
      */
     fun parseResponse(text: String): Hit? {
         val lines = text.lines()
-        if (lines.isEmpty() || !lines[0].contains("200")) return null
+        if (lines.isEmpty() || !statusOk.containsMatchIn(lines[0].trim())) return null
         val headers = mutableMapOf<String, String>()
         for (raw in lines.drop(1)) {
             val line = raw.trim()
@@ -56,6 +58,15 @@ object SsdpDiscover {
         return Hit(location, st, headers["usn"], headers["server"])
     }
 
+    /**
+     * One physical device = one key. `ssdp:all` makes a compliant device
+     * answer once per service description with a distinct USN but the same
+     * LOCATION, so dedup must key on the USN's uuid prefix (or LOCATION),
+     * never the full USN.
+     */
+    fun deviceKey(h: Hit): String =
+        h.usn?.substringBefore("::")?.takeIf { it.isNotBlank() } ?: h.location
+
     /** Pure line formatter (unit-testable). */
     fun formatLine(h: Hit): String {
         var line = "SSDP ${h.st} ${h.location}"
@@ -65,7 +76,12 @@ object SsdpDiscover {
         return line
     }
 
-    /** Send M-SEARCH a few times, collect unicast answers for [listenMs]. */
+    /**
+     * Send M-SEARCH a few times, collect unicast answers for [listenMs].
+     * Egress is pinned to the LAN interface when found (a cellular/VPN
+     * default route must not swallow the M-SEARCH), with an extra
+     * directed-broadcast copy for stacks that ignore multicast.
+     */
     fun discover(
         wifi: WifiManager?,
         onProgress: ((String) -> Unit)? = null,
@@ -75,41 +91,66 @@ object SsdpDiscover {
         val budget = listenMs.coerceIn(2000, 10000)
         val lock = MulticastLock.acquire(wifi, "izs-ssdp")
         if (lock == null) trySend(";; note: multicast lock unavailable — SSDP results may be partial")
-        var sock: DatagramSocket? = null
+        // Socket handed between reader thread and awaitClose without a race;
+        // Stop closes it — interrupt() cannot unblock receive().
+        val sockRef = java.util.concurrent.atomic.AtomicReference<DatagramSocket?>(null)
+        val lockReleased = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun releaseLockOnce() {
+            if (lockReleased.compareAndSet(false, true)) MulticastLock.release(lock)
+        }
         val reader = Thread {
             try {
                 val group = InetAddress.getByName(GROUP)
+                val iface = IpScan.lanInterface()
                 val s = try {
-                    DatagramSocket().apply { soTimeout = 500 }
+                    java.net.MulticastSocket().apply {
+                        soTimeout = 500
+                        broadcast = true
+                        if (iface != null) setNetworkInterface(iface)
+                    }
                 } catch (e: Exception) {
                     trySend("ERROR: cannot open UDP socket (${e.message}).")
                     return@Thread
                 }
-                sock = s
+                sockRef.set(s)
+                val bcast = IpScan.ownNetwork()?.let { IpScan.directedBroadcast(it) }
+                val bcastAddr = bcast?.let {
+                    try {
+                        InetAddress.getByName(it)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
                 val seen = mutableSetOf<String>()
                 var n = 0
                 val deadline = System.currentTimeMillis() + budget
                 val buf = ByteArray(8192)
                 var searches = 0
                 var lastSearch = 0L
-                while (System.currentTimeMillis() < deadline) {
-                    // Re-query every ~1.5 s: late joiners and lost datagrams.
-                    if (System.currentTimeMillis() - lastSearch > 1500) {
+                fun sendSearch() {
+                    val qb = msearch()
+                    try {
+                        s.send(DatagramPacket(qb, qb.size, group, PORT))
+                    } catch (_: Exception) {
+                    }
+                    if (bcastAddr != null) {
                         try {
-                            val qb = msearch()
-                            s.send(DatagramPacket(qb, qb.size, group, PORT))
+                            s.send(DatagramPacket(qb, qb.size, bcastAddr, PORT))
                         } catch (_: Exception) {
                         }
-                        lastSearch = System.currentTimeMillis()
-                        searches++
                     }
+                    lastSearch = System.currentTimeMillis()
+                    searches++
+                }
+                while (System.currentTimeMillis() < deadline) {
+                    // Re-query every ~1.5 s: late joiners and lost datagrams.
+                    if (System.currentTimeMillis() - lastSearch > 1500) sendSearch()
                     try {
                         val pkt = DatagramPacket(buf, buf.size)
                         s.receive(pkt)
                         val text = pkt.data.copyOfRange(0, pkt.length).toString(Charsets.UTF_8)
                         val hit = parseResponse(text) ?: continue
-                        val key = hit.usn ?: (hit.st + "|" + hit.location)
-                        if (seen.add(key)) {
+                        if (seen.add(deviceKey(hit))) {
                             n++
                             trySend(formatLine(hit))
                         }
@@ -126,10 +167,9 @@ object SsdpDiscover {
                 trySend("ERROR: SSDP listen failed (${e.message})")
             } finally {
                 try {
-                    sock?.close()
+                    sockRef.get()?.close()
                 } catch (_: Exception) {
                 }
-                MulticastLock.release(lock)
                 close()
             }
         }
@@ -137,14 +177,14 @@ object SsdpDiscover {
         reader.start()
         awaitClose {
             try {
-                sock?.close()
+                sockRef.get()?.close()
             } catch (_: Exception) {
             }
-            MulticastLock.release(lock)
             try {
-                reader.interrupt()
+                reader.join(1500)
             } catch (_: Exception) {
             }
+            releaseLockOnce()
         }
     }.flowOn(Dispatchers.IO)
 }

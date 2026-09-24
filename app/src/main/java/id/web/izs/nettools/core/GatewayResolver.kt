@@ -19,16 +19,32 @@ object GatewayResolver {
      * Parse Linux `/proc/net/route` text. The default route has
      * `Destination == 00000000`; its Gateway column is little-endian hex,
      * e.g. `0120A8C0` = bytes C0 A8 20 01 = 192.168.32.1.
+     *
+     * A row only counts when Flags has both RTF_UP and RTF_GATEWAY
+     * (`0x0003`) and the gateway is a real address — on-link defaults with
+     * `00000000` (PPP/cellular/VPN) are skipped, never reported as
+     * `0.0.0.0`. With several default routes (WiFi + cellular + VPN) the
+     * lowest-Metric row wins instead of whatever the file lists first.
      */
     fun gatewayFromRouteTable(text: String): String? {
+        var best: String? = null
+        var bestMetric = Int.MAX_VALUE
         for (raw in text.lines()) {
             val cols = raw.trim().split(Regex("\\s+"))
             if (cols.size < 8) continue
             if (cols[0] == "Iface" || cols[0].isEmpty()) continue
             if (cols[1] != "00000000") continue
-            return hexLeToIp(cols[2]) ?: continue
+            val flags = cols[3].toIntOrNull(16) ?: continue
+            if (flags and 0x0003 != 0x0003) continue
+            val gw = hexLeToIp(cols[2]) ?: continue
+            if (gw == "0.0.0.0") continue
+            val metric = cols[6].toIntOrNull() ?: Int.MAX_VALUE
+            if (metric < bestMetric) {
+                bestMetric = metric
+                best = gw
+            }
         }
-        return null
+        return best
     }
 
     private fun hexLeToIp(hex: String): String? {
@@ -69,7 +85,7 @@ object GatewayResolver {
                 lines += "default gateway $ip [route table]"
                 return GatewayInfo(ip, Source.ROUTE_TABLE) to lines
             }
-            lines += "no default-route entry, falling back to a guess..."
+            lines += "no usable default gateway (needs UP|GATEWAY flags, non-zero, best metric), falling back to a guess..."
         }
         val own = IpScan.ownNetwork()
         if (own != null) {

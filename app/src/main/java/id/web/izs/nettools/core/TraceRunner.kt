@@ -21,12 +21,29 @@ import java.util.concurrent.TimeUnit
  */
 object TraceRunner {
 
-    private val fromIp = Regex("""[Ff]rom\s+([0-9a-fA-F.:]+)""")
+    private val fromIp = Regex("""[Ff]rom\s+(\S+)""")
     private val bytesFrom = Regex("""bytes from\s+([0-9a-fA-F.:()\[\]\w.-]+)""")
     private val rtt = Regex("""time[=<]([0-9.]+)\s*ms""")
+    private val parenRe = Regex("""\(([^)]+)\)""")
 
     private val ipToken =
         Regex("""\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[0-9a-fA-F]*:[0-9a-fA-F:]*[0-9a-fA-F]\b""")
+
+    /**
+     * Candidate as an IP literal, or null. Tolerates a single trailing `:`
+     * from ping's `addr: icmp_seq=` form, but only when the remainder still
+     * parses — a legitimate address ending in `::` is kept intact.
+     */
+    private fun ipOrNull(raw: String?): String? {
+        val t = (raw ?: "").trim()
+        if (t.isEmpty()) return null
+        if (ipToken.matchEntire(t) != null) return t
+        if (t.endsWith(":")) {
+            val d = t.dropLast(1)
+            if (ipToken.matchEntire(d) != null) return d
+        }
+        return null
+    }
 
     /** First IP on a numeric `traceroute -n` output line, null for `*` rows/headers. */
     fun parseBinaryHopLine(line: String): String? {
@@ -34,6 +51,44 @@ object TraceRunner {
         if (t.isEmpty() || t.startsWith("traceroute to")) return null
         if (!t[0].isDigit()) return null
         return ipToken.find(t)?.value
+    }
+
+    /** Parsed fields of one TTL-limited ping run (pure — unit-testable). */
+    data class ProbeParse(val ip: String?, val rttMs: Double?, val reached: Boolean)
+
+    /** Parse ping output for one hop. Visible for tests. */
+    fun parseProbeOutput(out: String): ProbeParse {
+        var ip: String? = null
+        var rttMs: Double? = null
+        var reached = false
+        for (line in out.lines()) {
+            val bf = bytesFrom.find(line)
+            if (bf != null) {
+                // Echo reply: only the destination answers, so any
+                // "bytes from" line means the probe arrived. Prefer the
+                // parenthesized address ("host (1.2.3.4)"), then the
+                // token right after "from", then any IP on the line;
+                // last resort keeps a bare hostname for display.
+                reached = true
+                val paren = parenRe.find(line)?.groupValues?.get(1)
+                ip = ipOrNull(paren)
+                    ?: ipOrNull(bf.groupValues[1])
+                    ?: ipOrNull(ipToken.find(line)?.value)
+                    ?: bf.groupValues[1].trim('(', ')', '[', ']', ':')
+            } else {
+                // "From <addr> ... Time to live exceeded" — an intermediate
+                // hop, never the destination. Only accept real IP literals
+                // (a hex-y hostname prefix must not leak into HopInfo.ip).
+                fromIp.find(line)?.let { m ->
+                    val c = ipOrNull(parenRe.find(line)?.groupValues?.get(1))
+                        ?: ipOrNull(m.groupValues[1])
+                        ?: ipOrNull(ipToken.find(line)?.value)
+                    if (c != null) ip = c
+                }
+            }
+            rtt.find(line)?.let { rttMs = it.groupValues[1].toDoubleOrNull() }
+        }
+        return ProbeParse(ip, rttMs, reached)
     }
 
     suspend fun probe(host: String, ttl: Int, timeoutSec: Int = 2): HopInfo? {
@@ -49,23 +104,8 @@ object TraceRunner {
                 proc.destroy()
             }
             val out = proc.inputStream.bufferedReader().readText()
-            var ip: String? = null
-            var rttMs: Double? = null
-            var reached = false
-            for (line in out.lines()) {
-                fromIp.find(line)?.let { ip = it.groupValues[1].trimEnd(':') }
-                if (ip == null) {
-                    bytesFrom.find(line)?.let { m ->
-                        var v = m.groupValues[1].trim('(', ')', '[', ']', ':')
-                        // "host (1.2.3.4)" form
-                        val paren = Regex("""\(([^)]+)\)""").find(line)
-                        if (paren != null) v = paren.groupValues[1]
-                        ip = v
-                        reached = true
-                    }
-                }
-                rtt.find(line)?.let { rttMs = it.groupValues[1].toDoubleOrNull() }
-            }
+            val parsed = parseProbeOutput(out)
+            val ip = parsed.ip
             var name: String? = null
             if (ip != null) {
                 name = withTimeoutOrNull(1500) {
@@ -79,7 +119,7 @@ object TraceRunner {
                 }
                 if (name == ip) name = null
             }
-            HopInfo(ttl, ip, name, rttMs, reached)
+            HopInfo(ttl, ip, name, parsed.rttMs, parsed.reached)
         } catch (_: Exception) {
             HopInfo(ttl, null, null, null, false)
         } finally {
@@ -93,7 +133,10 @@ object TraceRunner {
     /** Resolve target to an IP once, so we can stop as soon as that IP answers. */
     suspend fun resolveIp(host: String): String? = withContext(Dispatchers.IO) {
         try {
-            InetAddress.getByName(host).hostAddress
+            // Prefer IPv4: Android's ping answers from the A record, so a
+            // dual-stack host resolved to its AAAA would never match.
+            val all = InetAddress.getAllByName(host)
+            (all.firstOrNull { it is java.net.Inet4Address } ?: all[0]).hostAddress
         } catch (_: Exception) {
             null
         }

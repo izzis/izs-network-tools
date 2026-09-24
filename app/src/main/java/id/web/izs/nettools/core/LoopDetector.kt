@@ -9,11 +9,13 @@ import id.web.izs.nettools.model.HopInfo
  *
  * Heuristics (rootless-honest):
  * - Non-consecutive repeat (IP seen at hops N and M, M - N > 1) = LOOP.
- *   Consecutive duplicates alone (hop 4 == hop 5) are NOT a loop;
- *   those are the known anycast/MPLS case already annotated by TraceRunner.
- * - Alternating A-B-A-B cycle = LOOP.
+ *   This also covers alternating A-B-A-B cycles (A reappears with a gap).
  * - Tiny IP set dominating a long trace (>= 6 resolved hops, <= 3 unique,
- *   each seen >= 2x) = LOOP.
+ *   each seen >= 2x) = LOOP — includes the contiguous X,X,Y,Y,Z,Z shape
+ *   (short cycle / bridged ports churning the path) and A-B-C-A-B-C...
+ * - A single lone consecutive duplicate (hop 4 == hop 5) alone is NOT a
+ *   loop; that is the known anycast/MPLS case already annotated by
+ *   TraceRunner.
  * - Full-length run that never reached the destination with some hops
  *   answering = SUSPECTED (loop or filtering — can't tell apart without root).
  * - All-silent runs are NOT a loop (ICMP blocked / TTL ignored).
@@ -35,7 +37,6 @@ object LoopDetector {
         if (answered.isEmpty()) {
             return LoopResult.NoLoop("No loop: no hop answered (nothing to analyze).")
         }
-        val ips = answered.map { it.ip!! }
         val ttlsByIp = linkedMapOf<String, MutableList<Int>>()
         answered.forEach { h -> ttlsByIp.getOrPut(h.ip!!) { mutableListOf() }.add(h.ttl) }
 
@@ -50,17 +51,11 @@ object LoopDetector {
             return LoopResult.Loop("LOOP DETECTED: $detail (routing loop suspected)")
         }
 
-        // 2. Alternating A-B-A-B cycle over consecutive answered hops.
-        for (i in 0 until ips.size - 3) {
-            if (ips[i] != ips[i + 1] && ips[i] == ips[i + 2] && ips[i + 1] == ips[i + 3]) {
-                return LoopResult.Loop(
-                    "LOOP DETECTED: cycle ${ips[i]} <-> ${ips[i + 1]} " +
-                        "at hops ${answered[i].ttl}-${answered[i + 3].ttl} (routing loop suspected)"
-                )
-            }
-        }
+        // (Alternating A-B-A-B cycles never reach the rules below: A always
+        // reappears with a gap and rule 1 already convicts them.)
 
-        // 3. Tiny set dominating a long trace (e.g. A-B-C-A-B-C...).
+        // 2. Tiny set dominating a long trace — including contiguous repeats
+        // (X,X,Y,Y,Z,Z) and A-B-C-A-B-C... (rule 1 saw no gap above).
         val distinct = ttlsByIp.size
         if (answered.size >= 6 && distinct <= 3 && ttlsByIp.values.all { it.size >= 2 }) {
             return LoopResult.Loop(
@@ -69,7 +64,7 @@ object LoopDetector {
             )
         }
 
-        // 4. Ran the full length without arriving, but something answered:
+        // 3. Ran the full length without arriving, but something answered:
         // loop or filter — honest about the ambiguity.
         if (!destReached && hops.size >= maxHops) {
             return LoopResult.Suspected(
@@ -100,8 +95,8 @@ object LoopDetector {
      * suspicion (it still verdicts as LOOP at end of run) and must never
      * cut a trace short on its own. Proof requires one of:
      * - the same IP at 3+ TTLs with at least one gap (A ... A ... A:
-     *   the packet demonstrably came back twice, not a one-off anomaly),
-     * - an alternating cycle observed twice over (A-B-A-B-A-B),
+     *   the packet demonstrably came back twice, not a one-off anomaly;
+     *   this also covers an alternating cycle observed twice — A-B-A-B-A-B),
      * - a tiny IP set dominating a long trace (same rule as [analyze]).
      */
     fun detectConfirmed(hops: List<HopInfo>): LoopResult.Loop? {
@@ -120,21 +115,8 @@ object LoopDetector {
             }
         }
 
-        // 2. Alternating cycle observed twice in a row.
-        val ips = answered.map { it.ip!! }
-        for (i in 0 until ips.size - 5) {
-            if (ips[i] != ips[i + 1] &&
-                ips[i] == ips[i + 2] && ips[i] == ips[i + 4] &&
-                ips[i + 1] == ips[i + 3] && ips[i + 1] == ips[i + 5]
-            ) {
-                return LoopResult.Loop(
-                    "LOOP DETECTED: cycle ${ips[i]} <-> ${ips[i + 1]} repeated " +
-                        "at hops ${answered[i].ttl}-${answered[i + 5].ttl} (routing loop confirmed)"
-                )
-            }
-        }
-
-        // 3. Tiny set dominating a long trace.
+        // 2. Tiny set dominating a long trace (A-B-A-B-A-B above already
+        // convicted via rule 1: A sits at a gap of 2).
         if (answered.size >= 6 && ttlsByIp.size <= 3 && ttlsByIp.values.all { it.size >= 2 }) {
             return LoopResult.Loop(
                 "LOOP DETECTED: only ${ttlsByIp.size} unique IPs across ${answered.size} answered hops " +

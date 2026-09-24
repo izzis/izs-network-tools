@@ -86,7 +86,7 @@ object MdnsDiscover {
         return labels.joinToString(".") to (if (end >= 0) end else o)
     }
 
-    private data class Rec(val owner: String, val type: Int, val data: ByteArray)
+    private data class Rec(val owner: String, val type: Int, val data: ByteArray, val off: Int)
 
     /** Parse every answer record of one mDNS message (questions skipped). */
     fun parseMessage(buf: ByteArray, len: Int): Parsed {
@@ -100,28 +100,35 @@ object MdnsDiscover {
             if (o > len) return Parsed(emptyList(), emptyList())
         }
         val recs = mutableListOf<Rec>()
-        repeat(totalAn) {
-            val n = readName(buf, len, o) ?: return@repeat
+        // A malformed record stops parsing instead of retrying at the same
+        // offset (return@repeat would re-read the broken position forever).
+        for (i in 0 until totalAn) {
+            val n = readName(buf, len, o) ?: break
             o = n.second
-            if (o + 10 > len) return@repeat
+            if (o + 10 > len) break
             val type = u16(buf, o)
             val rdLen = u16(buf, o + 8)
             o += 10
-            if (rdLen < 0 || o + rdLen > len) return@repeat
-            recs += Rec(n.first, type, buf.copyOfRange(o, o + rdLen))
+            if (rdLen < 0 || o + rdLen > len) break
+            recs += Rec(n.first, type, buf.copyOfRange(o, o + rdLen), o)
             o += rdLen
         }
-        val ptrs = mutableListOf<Pair<String, String>>() // (service type, instance)
-        val srvs = mutableMapOf<String, Pair<String, Int>>() // instance -> (host, port)
+        val ptrs = mutableListOf<Pair<String, String>>() // (service type key, instance)
+        val srvs = mutableMapOf<String, Pair<String, Int>>() // instance key -> (host, port)
         val txts = mutableMapOf<String, Map<String, String>>()
-        val addrs = mutableMapOf<String, String>() // host -> ip
+        val addrs = mutableMapOf<String, String>() // host key -> ip
         for (r in recs) {
             when (r.type) {
-                12 -> readName(r.data, r.data.size, 0)?.let { ptrs += r.owner to it.first } // PTR
+                // Names inside RDATA may be compression pointers whose OFFSET
+                // is relative to the whole message (RFC 1035 §4.1.4) — parse
+                // them against the original packet at r.off, not the rdata
+                // copy, or a C00C-style pointer lands past the copy and the
+                // record is dropped.
+                12 -> readName(buf, len, r.off)?.let { ptrs += r.owner.lowercase() to it.first } // PTR
                 33 -> { // SRV: pri + weight + port + target
                     if (r.data.size >= 6) {
                         val port = u16(r.data, 4)
-                        readName(r.data, r.data.size, 6)?.let { srvs[r.owner] = it.first to port }
+                        readName(buf, len, r.off + 6)?.let { srvs[r.owner.lowercase()] = it.first to port }
                     }
                 }
                 16 -> { // TXT: <len><bytes> strings, k=v on first '='
@@ -136,27 +143,30 @@ object MdnsDiscover {
                         val eq = s.indexOf('=')
                         if (eq > 0) map[s.take(eq)] = s.drop(eq + 1) else if (s.isNotEmpty()) map[s] = ""
                     }
-                    if (map.isNotEmpty()) txts[r.owner] = map
+                    if (map.isNotEmpty()) txts[r.owner.lowercase()] = map
                 }
                 1 -> if (r.data.size == 4) { // A
-                    addrs[r.owner] = r.data.joinToString(".") { (it.toInt() and 0xFF).toString() }
+                    addrs[r.owner.lowercase()] = r.data.joinToString(".") { (it.toInt() and 0xFF).toString() }
                 }
                 28 -> if (r.data.size == 16) { // AAAA
-                    addrs[r.owner] = (0 until 8).joinToString(":") { g ->
+                    addrs[r.owner.lowercase()] = (0 until 8).joinToString(":") { g ->
                         "%x".format(u16(r.data, g * 2))
                     }
                 }
             }
         }
+        // DNS names are case-insensitive: correlate on lowercase keys while
+        // keeping the first-seen original spelling for display.
         val services = ptrs.mapNotNull { (_, instance) ->
             if (instance.isEmpty()) null
             else {
-                val (host, port) = srvs[instance] ?: (null to null)
-                val ip = host?.let { addrs[it] }
-                Service(instance, host, ip, port, txts[instance] ?: emptyMap())
+                val ikey = instance.lowercase()
+                val (host, port) = srvs[ikey] ?: (null to null)
+                val ip = host?.let { addrs[it.lowercase()] }
+                Service(instance, host, ip, port, txts[ikey] ?: emptyMap())
             }
-        }.distinctBy { it.instance }
-        val usedHosts = services.mapNotNull { it.host }.toSet()
+        }.distinctBy { it.instance.lowercase() }
+        val usedHosts = services.mapNotNull { it.host?.lowercase() }.toSet()
         val hosts = addrs.filterKeys { it !in usedHosts }.map { (h, ip) -> h to ip }
         return Parsed(services, hosts)
     }
@@ -238,7 +248,9 @@ object MdnsDiscover {
 
     /**
      * Ask for local services and collect answers for [listenMs] (2–10 s).
-     * Needs WiFi multicast to actually arrive — hence the lock.
+     * Needs WiFi multicast to actually arrive — hence the lock. Joins and
+     * queries are pinned to the LAN [NetworkInterface] when one is found,
+     * so a cellular/VPN default route cannot steal the traffic.
      */
     fun discover(
         wifi: WifiManager?,
@@ -249,25 +261,59 @@ object MdnsDiscover {
         val budget = listenMs.coerceIn(2000, 10000)
         val lock = MulticastLock.acquire(wifi, "izs-mdns")
         if (lock == null) trySend(";; note: multicast lock unavailable — mDNS results may be partial")
-        var sock: MulticastSocket? = null
+        // Hand the socket between the reader thread and awaitClose without a
+        // data race; interrupt() cannot unblock DatagramSocket.receive, so
+        // Stop works by closing this socket.
+        val sockRef = java.util.concurrent.atomic.AtomicReference<MulticastSocket?>(null)
+        val lockReleased = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun releaseLockOnce() {
+            if (lockReleased.compareAndSet(false, true)) MulticastLock.release(lock)
+        }
         val reader = Thread {
             try {
                 val group = InetAddress.getByName(GROUP)
+                val iface = IpScan.lanInterface()
                 val s = try {
                     MulticastSocket(PORT).apply {
                         soTimeout = 500
-                        joinGroup(group)
+                        if (iface != null) {
+                            joinGroup(java.net.InetSocketAddress(group, PORT), iface)
+                            setNetworkInterface(iface)
+                        } else {
+                            joinGroup(group)
+                        }
                     }
                 } catch (e: Exception) {
                     trySend("ERROR: cannot bind UDP :$PORT (${e.message}) — another listener may hold it.")
                     return@Thread
                 }
-                sock = s
-                for (q in QUERIES) {
+                sockRef.set(s)
+                // IPv6 mDNS on FF02::FB%lan — best-effort, skipped when the
+                // interface has no IPv6 scope available.
+                val v6group = if (iface != null) {
                     try {
-                        val qb = buildQuery(q)
+                        java.net.InetAddress.getByName("FF02::FB%${iface.index}")
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else null
+                if (v6group != null && iface != null) {
+                    try {
+                        s.joinGroup(java.net.InetSocketAddress(v6group, PORT), iface)
+                    } catch (_: Exception) {
+                    }
+                }
+                for (q in QUERIES) {
+                    val qb = buildQuery(q)
+                    try {
                         s.send(DatagramPacket(qb, qb.size, group, PORT))
                     } catch (_: Exception) {
+                    }
+                    if (v6group != null) {
+                        try {
+                            s.send(DatagramPacket(qb, qb.size, v6group, PORT))
+                        } catch (_: Exception) {
+                        }
                     }
                 }
                 val seenServices = mutableSetOf<String>()
@@ -282,7 +328,7 @@ object MdnsDiscover {
                         s.receive(pkt)
                         val parsed = parseMessage(pkt.data, pkt.length)
                         for (sv in parsed.services) {
-                            if (seenServices.add(sv.instance)) {
+                            if (seenServices.add(sv.instance.lowercase())) {
                                 nServices++
                                 trySend(formatService(sv))
                             }
@@ -305,25 +351,28 @@ object MdnsDiscover {
                 trySend("ERROR: mDNS listen failed (${e.message})")
             } finally {
                 try {
-                    sock?.close()
+                    sockRef.get()?.close()
                 } catch (_: Exception) {
                 }
-                MulticastLock.release(lock)
                 close()
             }
         }
         reader.isDaemon = true
         reader.start()
         awaitClose {
+            // Closing the socket is what actually unblocks receive() — an
+            // interrupt() would not. Join the reader before releasing the
+            // multicast lock so WiFi filtering cannot resume under a live
+            // listener; release runs exactly once either way.
             try {
-                sock?.close()
+                sockRef.get()?.close()
             } catch (_: Exception) {
             }
-            MulticastLock.release(lock)
             try {
-                reader.interrupt()
+                reader.join(1500)
             } catch (_: Exception) {
             }
+            releaseLockOnce()
         }
     }.flowOn(Dispatchers.IO)
 }

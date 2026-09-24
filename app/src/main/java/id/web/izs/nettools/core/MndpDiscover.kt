@@ -120,7 +120,9 @@ object MndpDiscover {
     ): Flow<String> = callbackFlow {
         trySend(";; MNDP discovery on 255.255.255.255:$PORT [backend: udp broadcast, no root]")
         val budget = listenMs.coerceIn(2000, 10000)
-        var sock: DatagramSocket? = null
+        // Socket shared with awaitClose via an atomic ref — Stop closes it to
+        // unblock receive(); interrupt() alone would leak the listener.
+        val sockRef = java.util.concurrent.atomic.AtomicReference<DatagramSocket?>(null)
         val reader = Thread {
             try {
                 val s = try {
@@ -134,17 +136,21 @@ object MndpDiscover {
                     trySend("ERROR: cannot bind UDP :$PORT (${e.message}) — another scanner may hold the port.")
                     return@Thread
                 }
-                sock = s
+                sockRef.set(s)
                 // Nudge neighbors to answer now instead of at their next announcement.
                 try {
                     s.send(DatagramPacket(REFRESH, REFRESH.size, InetAddress.getByName("255.255.255.255"), PORT))
                 } catch (_: Exception) {
                 }
                 // Directed broadcast too: some stacks drop limited broadcast.
+                // Computed from the real prefix — a hardcoded ".255" would be
+                // a unicast address on any LAN that is not a /24.
                 IpScan.ownNetwork()?.let { own ->
-                    try {
-                        s.send(DatagramPacket(REFRESH, REFRESH.size, InetAddress.getByName("${own.base24}.255"), PORT))
-                    } catch (_: Exception) {
+                    IpScan.directedBroadcast(own)?.let { bcast ->
+                        try {
+                            s.send(DatagramPacket(REFRESH, REFRESH.size, InetAddress.getByName(bcast), PORT))
+                        } catch (_: Exception) {
+                        }
                     }
                 }
                 val seen = linkedMapOf<String, Neighbor>()
@@ -171,7 +177,7 @@ object MndpDiscover {
                 trySend("ERROR: MNDP listen failed (${e.message})")
             } finally {
                 try {
-                    sock?.close()
+                    sockRef.get()?.close()
                 } catch (_: Exception) {
                 }
                 close()
@@ -181,11 +187,11 @@ object MndpDiscover {
         reader.start()
         awaitClose {
             try {
-                sock?.close()
+                sockRef.get()?.close()
             } catch (_: Exception) {
             }
             try {
-                reader.interrupt()
+                reader.join(1500)
             } catch (_: Exception) {
             }
         }

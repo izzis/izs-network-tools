@@ -6,20 +6,25 @@ package id.web.izs.nettools.core
  * mirroring [LoopDetector].
  *
  * Heuristics (rootless-honest):
- * - 2+ `(DUP!)` replies = STORM. Duplicate echo replies mean frames
- *   circulate or are flooded back — the strongest rootless L2-loop signal.
- * - A single DUP is SUSPECTED only (same philosophy as LoopDetector's
- *   single-repeat rule: suspicion must never convict alone).
- * - Exploded gateway RTT (p95 > 100 ms on a LAN) plus partial loss =
- *   SUSPECTED; p95 > 500 ms with loss, or any RTT/loss anomaly combined
- *   with an ARP flap, = STORM.
+ * - 2+ `(DUP!)` replies = STORM. Two duplicate events mean frames
+ *   circulated or are flooded back — the strongest rootless L2-loop signal.
+ * - Otherwise STORM needs TWO independent heavy signals among:
+ *   ≥20% loss with ≥2 lost packets, p95 > 500 ms, a one-way RX flood
+ *   (≥ FLOOD_PPS with quiet TX), an ARP MAC flap, or any DUP! reply.
+ *   A real cable loop (ports bridged on one switch) trips loss + flood +
+ *   DUP together; a single anomaly never convicts.
+ * - A single anomaly (1 DUP, slow/lossy gateway, lone ARP flap, lone
+ *   heavy-loss sample) = SUSPECTED only — suspicion must never convict
+ *   alone (same philosophy as LoopDetector's single-repeat rule).
  * - A fully silent gateway is judged by traffic + errors, not by silence
  *   alone: silent under a packet flood (high RX pps) = STORM — a real storm
  *   kills the very replies we measure. Silent with "unreachable" errors and
  *   a quiet interface = NOT a storm (cable down / no route). Silent with
  *   plain timeouts and a quiet interface = SUSPECTED (ambiguous).
- * - ARP flap alone (without ping anomaly) is SUSPECTED — flapping can
- *   also come from roaming, HSRP/VRRP, or AP steering.
+ * - ARP flap alone (without a second heavy signal) is SUSPECTED — flapping
+ *   can also come from roaming, HSRP/VRRP, or AP steering.
+ * - Verdict text never claims evidence that was not measured: unreadable
+ *   ARP says "ping-only", unreadable counters say so instead of "quiet".
  */
 sealed interface StormResult {
     data class NoStorm(val message: String) : StormResult
@@ -110,9 +115,10 @@ object StormDetector {
                 )
             }
             if (stats.netUnreachable && (pps == null || pps < BUSY_PPS)) {
+                val wire = if (pps == null) "traffic counters unreadable" else "quiet interface"
                 return StormResult.NoStorm(
                     "No storm: gateway $gatewayIp unreachable (${stats.sent} sent, " +
-                        "ICMP errors, quiet interface — cable down or no route, " +
+                        "ICMP errors, $wire — cable down or no route, " +
                         "not a loop signature)."
                 )
             }
@@ -130,10 +136,12 @@ object StormDetector {
             )
         }
         val flap = arp as? ArpWatcher.ArpResult.Flap
-        val p95ms = p95(stats.rttsMs)
+        val p95v = p95(stats.rttsMs)
         val loss = stats.lossPct
+        val lost = (stats.sent - stats.received).coerceAtLeast(0)
+        val txQuiet = stats.txPps == null || stats.txPps < TX_QUIET_PPS
 
-        // 1. Duplicate replies: the smoking gun.
+        // 1. Duplicate replies: the smoking gun (two events = majemuk).
         if (stats.dups >= 2) {
             return StormResult.Storm(
                 "STORM DETECTED: ${stats.dups} duplicate replies (DUP!) from $gatewayIp " +
@@ -141,40 +149,50 @@ object StormDetector {
             )
         }
 
-        val rttBad = p95ms != null && p95ms > 500.0
-        val rttOdd = p95ms != null && p95ms > 100.0
+        // Heavy signals, each independent; STORM needs two of them.
+        val lossHeavy = loss >= 20.0 && lost >= 2
+        val rttBad = p95v != null && p95v > 500.0
+        val flood = stats.rxPps != null && stats.rxPps >= FLOOD_PPS && txQuiet
+        val heavySignals = buildList {
+            if (lossHeavy) add("${"%.0f".format(loss)}% loss ($lost/${stats.sent} lost)")
+            if (rttBad && p95v != null) add("p95 ${"%.0f".format(p95v)} ms")
+            if (flood) add("RX flood ${"%.0f".format(stats.rxPps ?: 0.0)} pps")
+            if (flap != null) add("ARP flap ${flap.macs.joinToString(" <-> ")}")
+            if (stats.dups == 1) add("1 duplicate reply (DUP!)")
+        }
+        if (heavySignals.size >= 2) {
+            return StormResult.Storm(
+                "STORM DETECTED: gateway $gatewayIp — ${heavySignals.joinToString(" + ")} " +
+                    "(two independent signals — broadcast storm / L2 loop suspected)"
+            )
+        }
+
+        // 2. Single anomaly: suspicion only, never conviction.
+        val rttOdd = p95v != null && p95v > 100.0
         val lossBad = loss >= 10.0
-
-        // 2. Strong combined signals.
-        if (rttBad && lossBad) {
-            return StormResult.Storm(
-                "STORM DETECTED: gateway $gatewayIp p95 ${"%.0f".format(p95ms)} ms " +
-                    "with ${"%.0f".format(loss)}% loss (broadcast storm suspected)"
-            )
-        }
-        if (flap != null && (rttOdd || lossBad || stats.dups == 1)) {
-            return StormResult.Storm(
-                "STORM DETECTED: gateway $gatewayIp flaps between MACs " +
-                    "${flap.macs.joinToString(" <-> ")} with ping anomalies " +
-                    "(L2 loop suspected)"
-            )
-        }
-
-        // 3. Single anomalies: suspicion only.
         if (stats.dups == 1) {
             return StormResult.Suspected(
                 "Suspected storm: 1 duplicate reply (DUP!) from $gatewayIp " +
                     "(single dupe — could be a transient flood, not proof of a loop)."
             )
         }
+        if (flood) {
+            return StormResult.Suspected(
+                "Suspected storm: gateway $gatewayIp answering while this device " +
+                    "receives ${"%.0f".format(stats.rxPps ?: 0.0)} packets/sec " +
+                    "(one-way flood present, but replies still arrive — a second " +
+                    "signal is needed to confirm a storm)."
+            )
+        }
         if (rttOdd || lossBad) {
             val why = buildList {
-                if (rttOdd) add("p95 ${"%.0f".format(p95ms)} ms")
+                if (rttOdd) add("p95 ${"%.0f".format(p95v)} ms")
                 if (lossBad) add("${"%.0f".format(loss)}% loss")
             }.joinToString(", ")
             return StormResult.Suspected(
                 "Suspected storm: gateway $gatewayIp slow/lossy ($why — " +
-                    "storm or just bad WiFi, cannot tell apart without DUP/ARP proof)."
+                    "not enough alone to confirm; storm or just bad WiFi, " +
+                    "needs a second signal (DUP/flood/flap) to confirm)."
             )
         }
         if (flap != null) {
@@ -190,11 +208,16 @@ object StormDetector {
                     "while ping answers (churn — watch for a loop)."
             )
         }
+        val arpTxt = if (arp is ArpWatcher.ArpResult.Unreadable) {
+            "ARP unreadable — ping-only verdict"
+        } else {
+            "ARP stable"
+        }
         return StormResult.NoStorm(
             "No storm: gateway $gatewayIp healthy " +
                 "(${stats.received}/${stats.sent} replies" +
-                (if (p95ms != null) ", p95 ${"%.1f".format(p95ms)} ms" else "") +
-                ", ARP stable)."
+                (if (p95v != null) ", p95 ${"%.1f".format(p95v)} ms" else "") +
+                ", $arpTxt)."
         )
     }
 

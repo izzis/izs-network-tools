@@ -25,19 +25,24 @@ through the privileged system `ping` binary.
   annotated (`same as hop N, typical for anycast/MPLS`) — 8.8.8.8 does this.
   Trace is verdict-free on purpose: every loop verdict lives in Loop.
 - Every Loop run ends with verdict lines in the console. L3 phase: `LOOP DETECTED`
-  (red) when an IP repeats non-consecutively or an A-B-A-B cycle appears,
+  (red) when an IP repeats non-consecutively (this includes A-B-A-B cycles)
+  or a tiny set of ≤3 unique IPs dominates a ≥6-hop answered run (contiguous
+  repeats like X,X,Y,Y,Z,Z included),
   `Suspected loop or filtering` (amber) when max hops is reached without
   arriving, otherwise `No loop` (green). L2 phase: `STORM DETECTED` (red) on
-  2+ ping `DUP!`s, exploded gateway RTT with loss, or ARP flap combined with
-  ping anomalies; `Suspected storm` (amber) on a single DUP, slow/lossy
-  gateway, lone ARP flap, or incomplete ARP; otherwise `No storm` (green).
+  2+ ping `DUP!`s, or any two independent heavy signals among: ≥20% loss with
+  ≥2 packets lost, p95 RTT > 500 ms, a one-way RX flood, an ARP flap, or any
+  DUP reply; `Suspected storm` (amber) on a single signal — one DUP,
+  slow/lossy gateway, lone ARP flap, a one-way flood with replies still
+  arriving, or incomplete ARP; otherwise `No storm` (green).
   Only the bad outcomes also pop banners above the console; clean runs stay
   text-only. A *confirmed* L3 loop stops the trace early: the same IP seen at
-  3+ TTLs, an A-B cycle observed twice, or a tiny IP set dominating the run
-  (a looping packet can never arrive, further probes would just repeat the
+  3+ TTLs or a tiny IP set dominating the run (a looping packet can never
+  arrive, further probes would just repeat the
   cycle). A single repeat is suspicion only — the run continues and it
-  verdicts at the end instead of cutting the trace short. Consecutive
-  duplicates alone never flag (anycast), and all-silent L3 runs skip the
+  verdicts at the end instead of cutting the trace short. A lone consecutive
+  duplicate never flags (anycast) — only a tiny dominating set does — and
+  all-silent L3 runs skip the
   verdict instead of crying wolf. A silent gateway is judged by the wire,
   not the silence: the RX/TX rate comes from the TrafficStats API
   (`/proc/net/dev` fallback) because `/proc/net` paths are unreadable to apps

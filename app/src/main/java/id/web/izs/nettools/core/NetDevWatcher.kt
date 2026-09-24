@@ -1,6 +1,7 @@
 package id.web.izs.nettools.core
 
 import android.net.TrafficStats
+import android.os.SystemClock
 
 /**
  * Interface traffic-rate sampling without root.
@@ -14,21 +15,34 @@ import android.net.TrafficStats
  * is the flood signal; TX is the alibi check — [TrafficStats] is
  * device-wide, so a download over mobile data also raises RX. A storm flood
  * is one-way (RX≫TX, TX is just our own pings); downloads always carry TX
- * ACKs. Pure parsing ([parse]) is unit-testable; [read] needs
+ * ACKs. Samples carry their [Sample.source] and use the monotonic
+ * [SystemClock.elapsedRealtime] clock, so a mid-window NTP/wall-clock step
+ * cannot fake or hide a flood, and rates are only computed when both
+ * samples come from the same counter domain. Pure parsing ([parse]) is
+ * unit-testable; [read] needs
  * a device (TrafficStats stubs throw on JVM unit tests — never call it there).
  */
 object NetDevWatcher {
+
+    const val SOURCE_PROC = "proc"
+    const val SOURCE_TRAFFIC = "trafficstats"
 
     data class Sample(
         val atMs: Long,
         val rxPackets: Long,
         val rxBytes: Long,
         val txPackets: Long,
-        val txBytes: Long
+        val txBytes: Long,
+        /** Counter domain — rates are only valid within one domain. */
+        val source: String = SOURCE_PROC
     )
 
     /** Parse Linux `/proc/net/dev` text: summed RX/TX over non-`lo` interfaces. */
-    fun parse(text: String, atMs: Long = System.currentTimeMillis()): Sample {
+    fun parse(
+        text: String,
+        atMs: Long = System.currentTimeMillis(),
+        source: String = SOURCE_PROC
+    ): Sample {
         var rxP = 0L
         var rxB = 0L
         var txP = 0L
@@ -49,13 +63,15 @@ object NetDevWatcher {
                 txP += cols[9].toLongOrNull() ?: 0L
             }
         }
-        return Sample(atMs, rxP, rxB, txP, txB)
+        return Sample(atMs, rxP, rxB, txP, txB, source)
     }
 
     fun read(): Sample? {
         readTrafficStats()?.let { return it }
         return try {
-            java.io.File("/proc/net/dev").takeIf { it.canRead() }?.readText()?.let { parse(it) }
+            java.io.File("/proc/net/dev").takeIf { it.canRead() }
+                ?.readText()
+                ?.let { parse(it, SystemClock.elapsedRealtime()) }
         } catch (_: Exception) {
             null
         }
@@ -69,7 +85,7 @@ object NetDevWatcher {
         val txB = TrafficStats.getTotalTxBytes()
         val bad = TrafficStats.UNSUPPORTED.toLong()
         if (rxP == bad || rxB == bad || txP == bad || txB == bad) null
-        else Sample(System.currentTimeMillis(), rxP, rxB, txP, txB)
+        else Sample(SystemClock.elapsedRealtime(), rxP, rxB, txP, txB, SOURCE_TRAFFIC)
     } catch (_: Exception) {
         null // JVM unit tests (android.jar stubs) land here — callers handle null.
     }
@@ -84,6 +100,9 @@ object NetDevWatcher {
 
     private fun rate(before: Sample?, after: Sample?, sel: (Sample) -> Long): Double? {
         if (before == null || after == null) return null
+        // Different counter domains (TrafficStats vs /proc): the delta would
+        // cross sources and could invent a fake flood — refuse to compute.
+        if (before.source != after.source) return null
         val dtSec = (after.atMs - before.atMs) / 1000.0
         if (dtSec <= 0) return null
         val d = sel(after) - sel(before)

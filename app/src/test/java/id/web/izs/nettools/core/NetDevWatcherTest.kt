@@ -38,4 +38,17 @@ class NetDevWatcherTest {
         assertNull(NetDevWatcher.rxPps(null, before))
         assertNull(NetDevWatcher.rxPps(before, NetDevWatcher.Sample(0L, 0, 0, 0, 0))) // zero/negative dt
     }
+
+    @Test
+    fun mismatchedCounterSourcesYieldNullRate() {
+        // TrafficStats vs /proc/net/dev crossing domains would invent a
+        // fake flood — the rate must refuse to compute.
+        val procSample = NetDevWatcher.parse(sample, atMs = 0L) // source = "proc"
+        val trafficSample = NetDevWatcher.Sample(
+            10_000L, 400_000, 6_000_000, 400, 80_000,
+            NetDevWatcher.SOURCE_TRAFFIC
+        )
+        assertNull(NetDevWatcher.rxPps(procSample, trafficSample))
+        assertNull(NetDevWatcher.txPps(trafficSample, procSample))
+    }
 }

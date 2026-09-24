@@ -1,6 +1,7 @@
 package id.web.izs.nettools.core
 
 import android.net.wifi.WifiManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -30,6 +31,9 @@ object NeighborRunner {
             emitAll(MndpDiscover.discover(onProgress, perPhase))
             emitAll(MdnsDiscover.discover(wifi, onProgress, perPhase))
             emitAll(SsdpDiscover.discover(wifi, onProgress, perPhase))
+        } catch (e: CancellationException) {
+            // Stop pressed: propagate, never swallow into an ERROR line.
+            throw e
         } catch (e: Exception) {
             emit("ERROR: neighbor discovery failed (${e.message})")
         }
