@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -253,7 +254,10 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
             )
         }
     ) { pad ->
-        Column(modifier = Modifier.fillMaxSize().padding(pad)) {
+        // Keyboard up: shrink the tab + pager area above the IME so a focused
+        // form field scrolls into the visible part instead of hiding behind
+        // the keyboard (edge-to-edge dispatches ime insets; nothing resizes).
+        Column(modifier = Modifier.fillMaxSize().padding(pad).imePadding()) {
             PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
                 tabs.forEachIndexed { i, title ->
                     Tab(
