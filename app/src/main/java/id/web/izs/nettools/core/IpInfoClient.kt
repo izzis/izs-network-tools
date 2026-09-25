@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.flowOn
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /** Generic IP-info client: works with ipwho.is, ip-api.com, ipaddress.to (no key). Base URL configurable. */
@@ -17,27 +18,47 @@ object IpInfoClient {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    /** True when target is a hostname that must be DNS-resolved before the
+     *  provider call: ipwho.is and ipinfo.io answer 404 for domains, so the
+     *  app resolves first (ipwho.is-style: hostname -> IP, then lookup). */
+    internal fun needsResolve(target: String, me: Boolean, selfOnly: Boolean): Boolean =
+        !me && !selfOnly && target.isNotEmpty() && !TargetParser.isIp(target)
+
+    /** Provider URL for a target that is already an IP literal (or me). */
+    internal fun buildUrl(base: String, target: String, me: Boolean, selfOnly: Boolean): String = when {
+        base.contains("{ip}") -> base.replace("{ip}", if (me) "my" else target)
+        me && base.contains("api.ipinfo.io/lite") -> "$base/me"
+        me && base.contains("ipaddress.to") -> "$base/my"
+        me -> base
+        // Some free providers only report the caller's own IP (no lookup for others).
+        selfOnly -> base
+        base.contains("ip-api.com") -> "$base/$target?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query"
+        base.contains("ipaddress.to") -> "$base/$target"
+        // Default ipinfo.io preset keeps "/json" in the base: the lookup
+        // path is ipinfo.io/{ip}/json, not ipinfo.io/json/{ip} (404).
+        base.equals("https://ipinfo.io/json", ignoreCase = true) -> "https://ipinfo.io/$target/json"
+        else -> "$base/$target"
+    }
+
     fun lookup(target: String, base: String, token: String = ""): Flow<String> = flow {
         val b = base.trim().trimEnd('/')
         val t = token.trim()
         val me = target.isEmpty()
-        // Some free providers only report the caller's own IP (no lookup for others).
         val selfOnly = b.contains("api.ipify.org") ||
             b.contains("icanhazip.com") ||
             b.contains("amazonaws.com")
-        val url = when {
-            b.contains("{ip}") -> b.replace("{ip}", if (me) "my" else target)
-            me && b.contains("api.ipinfo.io/lite") -> "$b/me"
-            me && b.contains("ipaddress.to") -> "$b/my"
-            me -> b
-            selfOnly -> b
-            b.contains("ip-api.com") -> "$b/$target?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query"
-            b.contains("ipaddress.to") -> "$b/$target"
-            // Default ipinfo.io preset keeps "/json" in the base: the lookup
-            // path is ipinfo.io/{ip}/json, not ipinfo.io/json/{ip} (404).
-            b.equals("https://ipinfo.io/json", ignoreCase = true) -> "https://ipinfo.io/$target/json"
-            else -> "$b/$target"
-        }.let {
+        var q = target.trim()
+        if (needsResolve(q, me, selfOnly)) {
+            val ip = try {
+                InetAddress.getByName(q).hostAddress
+            } catch (e: Exception) {
+                emit(";; DNS $q: ${e.message ?: "cannot resolve"}")
+                return@flow
+            }
+            emit(";; $q -> $ip (DNS)")
+            q = ip
+        }
+        val url = buildUrl(b, q, me, selfOnly).let {
             // Free ipinfo.io token (Lite plan): authenticates the request for
             // unlimited quota instead of the shared anonymous limit.
             if (t.isNotEmpty() && b.contains("ipinfo.io")) {

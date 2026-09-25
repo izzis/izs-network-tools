@@ -13,7 +13,9 @@ Cloudflare alt `1.0.0.1`, or custom IP.
 
 `ipwho.is`, `ip-api.com/json` (HTTP, non-commercial),
 `ipaddress.to/api/lookup` (geo+ASN), `ipinfo.io/json`, or custom.
-These can resolve any IP/domain, so IP Info stays flexible.
+Any provider accepts a domain: the app resolves it to an IP first
+(shown as a `;; host -> IP (DNS)` line), because ipwho.is and
+ipinfo.io are IP-only and answer 404 for hostnames.
 
 ## My IP server — any provider
 
