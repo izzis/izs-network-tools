@@ -27,7 +27,7 @@ Package: `id.web.izs.nettools`
 | IP Scan   | Parallel ping sweep of a single IP, range, or whole `/24` — lists the hosts that are up, with hostnames |
 | Neighbor  | LAN device discovery over MikroTik MNDP, mDNS and UPnP/SSDP — no target needed |
 | Loop      | L2 broadcast-storm check on the gateway + L3 routing-loop trace (empty target = auto gateway) |
-| WiFi Analyzer | Live nearby APs re-scanned every 30 s — signal, distance, channel, bandwidth, band, security, 802.11 generation + OUI vendor name; Band/Channel/Security/Display filter tabs, List view (2/3 rows, sort) or channel-overlap view; optional SSID/MAC filter, no target needed |
+| WiFi Analyzer | Live nearby APs re-scanned every 30 s — signal, distance, channel, bandwidth, band, security (optional 3rd row adds OUI vendor + 802.11 generation); Band/Channel/Security/Display filter tabs, List view (2/3 rows, sort) or channel-overlap view; optional SSID/MAC filter, no target needed |
 
 Extras: saved favorites + recent targets (max configurable, default 5),
 auto-run on tool pick and on saved-target pick (both toggleable), Global/Local

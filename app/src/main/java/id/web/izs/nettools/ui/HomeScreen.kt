@@ -774,9 +774,10 @@ fun HomeScreen(
                 // Filters as a Settings-style 2-row block: dimension tabs on
                 // top, values for the active dimension below — fixed height
                 // no matter how many filter kinds exist. Display (rightmost)
-                // = List/Channel + "Sort:" + RSSI/SSID/Ch in a horizontally
-                // scrollable group · Rows: 2/3 pinned at the far right
-                // (List only; Channel always sorts by channel no).
+                // = List/Channel + "Sort:" + RSSI/SSID/Ch + Rows: 2/3 in one
+                // horizontally scrollable row — Rows sits at the far right, so
+                // on narrow screens it stays out of view until scrolled
+                // (rarely changed); Channel always sorts by channel no.
                 // SSIDs stay free text in the target bar (names are too
                 // random to enumerate).
                 var wifiFilterDim by remember { mutableStateOf(0) }
@@ -818,51 +819,46 @@ fun HomeScreen(
                     else -> Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                     ) {
-                        // Scrollable group on the left: List/Channel + Sort.
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            listOf(
-                                WifiAnalyzerRunner.DISPLAY_LIST to "List",
-                                WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
-                            ).forEach { (value, label) ->
-                                FilterChip(
-                                    selected = value == state.wifiDisplay,
-                                    onClick = { vm.setWifiDisplay(value) },
-                                    label = {
-                                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                    },
-                                    modifier = Modifier.height(28.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "Sort:",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        listOf(
+                            WifiAnalyzerRunner.DISPLAY_LIST to "List",
+                            WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiDisplay,
+                                onClick = { vm.setWifiDisplay(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
                             )
-                            listOf(
-                                WifiAnalyzerRunner.SORT_RSSI to "RSSI",
-                                WifiAnalyzerRunner.SORT_SSID to "SSID",
-                                WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
-                            ).forEach { (value, label) ->
-                                FilterChip(
-                                    selected = value == state.wifiSort,
-                                    onClick = { vm.setWifiSort(value) },
-                                    label = {
-                                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                    },
-                                    modifier = Modifier.height(28.dp)
-                                )
-                            }
                         }
-                        // Rows: 2/3 — always visible, pinned at the far right.
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Sort:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        listOf(
+                            WifiAnalyzerRunner.SORT_RSSI to "RSSI",
+                            WifiAnalyzerRunner.SORT_SSID to "SSID",
+                            WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiSort,
+                                onClick = { vm.setWifiSort(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                        // Rows last = far right of the scroll content: rarely
+                        // changed, so it stays off-screen on narrow displays.
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             "Rows:",
                             style = MaterialTheme.typography.labelMedium,

@@ -334,7 +334,7 @@ object WifiAnalyzerRunner {
      *
      * [ROWS_2]:
      *   line 1: SSID · signal stair · dBm · ~distance · `(gone)`/`(filter)`
-     *   line 2: MAC · channel · bandwidth · band · security · 802.11
+     *   line 2: MAC · channel · bandwidth · band · security
      *
      * [ROWS_3]:
      *   line 1: SSID · signal stair · dBm · ~distance
@@ -343,6 +343,8 @@ object WifiAnalyzerRunner {
      *
      * Hidden SSIDs show `(hidden)` on line 1 — the MAC on line 2 still
      * uniquely identifies the AP. Connected is a UI color (green), not a marker.
+     * The 802.11 standard rides ONLY the Rows:3 line 3 — keeping it off line 2
+     * (ROWS_2) lets line 2 stay one row even at larger output font sizes.
      * In ROWS_3 the line-3 label starts at line 2's `ch` column (MAC 17 +
      * 2 spaces = 19) — the monospace font keeps every character the same
      * width, so column counting is pixel-accurate. Line 3 is omitted entirely
@@ -370,17 +372,15 @@ object WifiAnalyzerRunner {
                 if (filter) append("  (filter)")
             }
         }
-        // Fixed columns so rows stay aligned whether or not width/standard are long:
-        //   MAC(17)  ch(5)  width(7)  band(6)  sec(4)  [standard] (ROWS_2 only)
+        // Fixed columns so rows stay aligned whether or not width is long:
+        //   MAC(17)  ch(5)  width(7)  band(6)  sec(4)
+        // The 802.11 standard never rides line 2 — at bigger output fonts it
+        // pushed the row past one line; it lives on the Rows:3 line 3.
         val ch = "ch${channelOf(ap.frequency).toString().padStart(3)}"
         val width = "${ap.widthMhz}MHz".padEnd(7)
         val band = "${bandOf(ap.frequency)}G".padEnd(6)
         val sec = ap.security.padEnd(4)
-        val line2 = buildString {
-            append(ap.bssid).append("  ").append(ch).append("  ")
-            append(width).append(band).append(sec)
-            if (rows == ROWS_2 && ap.standard.isNotEmpty()) append("  ${ap.standard}")
-        }
+        val line2 = "${ap.bssid}  $ch  $width$band$sec"
         if (rows == ROWS_2) return "$line1\n$line2"
         // ROWS_3: vendor + standard-with-generation + markers share line 3.
         val label = standardLabel(ap)

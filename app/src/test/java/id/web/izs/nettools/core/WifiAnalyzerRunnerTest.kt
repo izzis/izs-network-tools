@@ -359,7 +359,7 @@ class WifiAnalyzerRunnerTest {
         assertTrue(line1.contains("~")) // FSPL distance estimate
         assertTrue(line1.contains("m"))
         assertFalse(line1.endsWith("*"))
-        // line 2: MAC · ch · width · band · sec · 802.11 (no indent)
+        // line 2: MAC · ch · width · band · sec (no indent)
         assertFalse(line2.startsWith(" "))
         assertTrue(line2.startsWith("aa:bb:cc:dd:ee:ff"))
         assertTrue(line2.contains("ch  6"))
@@ -382,22 +382,29 @@ class WifiAnalyzerRunnerTest {
     }
 
     @Test
-    fun formatShowsWidthAndStandardWhenKnown() {
+    fun formatShowsWidthButKeepsStandardOffLine2() {
+        // 802.11 rides only the Rows:3 line 3 — line 2 must stay one row even
+        // at larger output font sizes.
         val block = WifiAnalyzerRunner.formatAp(
             ap(freq = 2432, widthMhz = 40, standard = "802.11ax")
         )
         val line2 = block.split("\n", limit = 2)[1]
         assertTrue(line2.contains("40MHz"))
-        assertTrue(line2.contains("802.11ax"))
-        // unknown standard → field omitted (no dangling spaces before end/mark)
-        val noStd = WifiAnalyzerRunner.formatAp(ap(standard = ""))
-        assertFalse(noStd.split("\n", limit = 2)[1].contains("802.11"))
+        assertFalse(line2.contains("802.11"))
+        assertTrue(line2.trimEnd().endsWith("WPA2"))
+        // The same AP in Rows:3 still shows the standard on line 3.
+        val three = WifiAnalyzerRunner.formatAp(
+            ap(freq = 2432, widthMhz = 40, standard = "802.11ax"),
+            rows = WifiAnalyzerRunner.ROWS_3
+        ).split("\n")
+        assertEquals(3, three.size)
+        assertTrue(three[2].contains("802.11ax (WiFi 6)"))
     }
 
     @Test
     fun formatLine2ColumnsStayAligned() {
-        // Wide channel width must not glue to the band; band/sec columns
-        // must start at the same offset with or without a standard.
+        // Wide channel width must not glue to the band; fixed columns hold,
+        // and the standard never rides line 2 (it made the row wrap).
         val wide = WifiAnalyzerRunner.formatAp(
             ap(bssid = "aa:aa:aa:aa:aa:01", freq = 5180, widthMhz = 160, standard = "802.11ac")
         ).split("\n", limit = 2)[1]
@@ -410,9 +417,8 @@ class WifiAnalyzerRunnerTest {
         assertTrue(narrow.substring(bandCol).startsWith("2.4G"))
         // space between MHz and band on the 160 MHz row
         assertTrue(wide.substring(0, bandCol).endsWith("160MHz "))
-        // standard sits after padded security (4) + two spaces
-        assertTrue(wide.substring(bandCol + 6 + 4).startsWith("  802.11ac"))
-        assertFalse(narrow.contains("802.11"))
+        assertFalse(wide.contains("802.11"))
+        assertTrue(wide.trimEnd().endsWith("WPA2"))
         assertTrue(narrow.trimEnd().endsWith("WPA2"))
     }
 
