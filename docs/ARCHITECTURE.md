@@ -26,6 +26,7 @@ app/src/main/java/id/web/izs/nettools/
     CertChecker.kt       TLS handshake, chain capture, trust check
     HttpHeadersFetcher.kt  GET + redirect chain + headers
     IpScan.kt            parallel ping scanner (IP / range / CIDR / auto /24)
+    OuiDb.kt             OUI vendor lookup for the 3-row display (assets/oui.txt)
   ui/
     NetToolsViewModel.kt tool dispatch, progress, save/recents
     HomeScreen.kt        target bar, picker, 2-row selector, terminal
@@ -66,10 +67,16 @@ Rules learned the hard way:
   only its own key so reopen never resurrects the other tool's text.
 - `last_tool` restores the selected tool with the matching slot above (select
   only, never auto-run).
+- `global_prefs` (JSON `GlobalPrefs`): Global vs Local engine per tool
+  (Ping/Trace/Ports) + Globalping probes/country — saved on every toggle,
+  restored on launch. Fresh install = Local / 10 probes / worldwide.
+- WiFi Analyzer filters: `wifi_bands` (band multi-select JSON, default
+  2.4+5+6) and `wifi_rows` (AP row count 2 | 3 for the List display,
+  default 2). Channel / security / display / sort stay session-only.
 - Settings auto-save with 600 ms debounce; flushed on back navigation.
 - Tool grid order/visibility (`tool_order`, `disabled_tools`) follows the
   `Tool` enum order by default with Headers + Cert off: top row Ping–My IP,
   bottom row Trace, Ports, Loop, Neighbor, IP Scan (5+5). The split is dynamic
   (`half = (n+1)/2`) — no hardcoded row size, no placeholder cells.
-  Loop mode (L2/L3/Both) is per-session state, not persisted — same as
-  the Ping/Trace/Ports scopes.
+  Loop mode (L2/L3/Both) is per-session state, not persisted (unlike the
+  Ping/Trace/Ports scopes, which now live in `global_prefs`).

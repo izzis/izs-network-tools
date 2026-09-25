@@ -24,13 +24,14 @@ Package: `id.web.izs.nettools`
 | Ports     | TCP port scan from a configurable list (single ports + `8000-8010` ranges) |
 | Cert      | TLS certificate viewer (subject, issuer, validity, SANs, SHA-256, trust status) |
 | Headers   | HTTP response headers with redirect chain |
-| IP Scan   | Ping scanner: single IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines with IP + hostname (MAC + `[gw]` optional via Scan setting, default off) + compact RTO ranges (offline lines optional, default off) |
-| Neighbor  | LAN neighbor discovery, no target needed: MikroTik (MNDP on UDP 5678, even without IP) + local services (mDNS) + UPnP devices (SSDP) |
-| Loop      | L2 broadcast-storm check on the LAN gateway + L3 routing-loop trace (empty = auto gateway, hold to pick L2/L3/Both) |
-| WiFi Analyzer | Live nearby AP list (SSID, signal, channel, bandwidth, band, security, 802.11 standard) re-scanned every 30 s; filter tabs Band → Channel → Security → **Display** (rightmost); Band + Security multi-select (default all on; Band remembered across launches, Select All at the row's right resets it) = **List** (AP rows with SSID, signal bar, dBm, ~FSPL distance, channel, bandwidth, band, security, 802.11 (e.g. 802.11ax) when known; connected in green; sort **Sort: RSSI · SSID · Ch** pinned right of List/Channel — re-sorts every refresh, connected AP stays on top) or **Channel** (overlap AP count per country-legal primary channel — country detected from network SIM/ISO → device locale, never GPS; an AP counts toward every valid channel its bandwidth covers — empty legal channels of selected bands listed, sorted by channel number); optional SSID/MAC filter; no target needed |
+| IP Scan   | Parallel ping sweep of a single IP, range, or whole `/24` — lists the hosts that are up, with hostnames |
+| Neighbor  | LAN device discovery over MikroTik MNDP, mDNS and UPnP/SSDP — no target needed |
+| Loop      | L2 broadcast-storm check on the gateway + L3 routing-loop trace (empty target = auto gateway) |
+| WiFi Analyzer | Live nearby APs re-scanned every 30 s — signal, distance, channel, bandwidth, band, security, 802.11 generation + OUI vendor name; Band/Channel/Security/Display filter tabs, List view (2/3 rows, sort) or channel-overlap view; optional SSID/MAC filter, no target needed |
 
 Extras: saved favorites + recent targets (max configurable, default 5),
-auto-run on tool pick and on saved-target pick (both toggleable), home tool
+auto-run on tool pick and on saved-target pick (both toggleable), Global/Local
+engine choice for Ping/Trace/Ports remembered across launches, home tool
 grid order + visibility configurable in Settings → Tools, semantic
 output colors (toggleable, console follows light/dark theme), text size +/-, clear
 output (runs append, capped at 2000 lines), 5 app themes (AMOLED, Dark, Darker, Sand,
