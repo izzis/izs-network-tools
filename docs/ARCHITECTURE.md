@@ -75,8 +75,9 @@ Rules learned the hard way:
   default 2). Channel / security / display / sort stay session-only.
 - Settings auto-save with 600 ms debounce; flushed on back navigation.
 - Tool grid order/visibility (`tool_order`, `disabled_tools`) follows the
-  `Tool` enum order by default with Headers + Cert off: top row Ping–My IP,
-  bottom row Trace, Ports, Loop, Neighbor, IP Scan (5+5). The split is dynamic
+  `Tool` enum order by default with Headers + Loop + Neighbor off: top row
+  Ping–My IP, bottom row Trace, Ports, Cert, WiFi Analyzer, IP Scan (5+5).
+  The split is dynamic
   (`half = (n+1)/2`) — no hardcoded row size, no placeholder cells.
   `tool_grid_rows` (default 2) picks the classic split or a compact 1-row
   layout — fixed pages of 5 tools in a snapping `HorizontalPager`.

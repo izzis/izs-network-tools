@@ -22,7 +22,7 @@ Package: `id.web.izs.nettools`
 | IP Info   | Geolocation/ASN for any IP or domain |
 | My IP     | This device's current public IP |
 | Ports     | TCP port scan from a configurable list (single ports + `8000-8010` ranges) |
-| Cert      | TLS certificate viewer (subject, issuer, validity, SANs, SHA-256, trust status) |
+| Cert      | TLS certificate viewer on any port — implicit TLS, STARTTLS (SMTP/IMAP/POP3/FTP) or MySQL in-band SSL — subject, issuer, validity, SANs, SHA-256, trust status |
 | Headers   | HTTP response headers with redirect chain |
 | IP Scan   | Parallel ping sweep of a single IP, range, or whole `/24` — lists the hosts that are up, with hostnames |
 | Neighbor  | LAN device discovery over MikroTik MNDP, mDNS and UPnP/SSDP — no target needed |

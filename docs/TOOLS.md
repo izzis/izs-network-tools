@@ -13,7 +13,7 @@ through the privileged system `ping` binary.
 | IP Info | HTTPS JSON APIs (see SERVERS.md), generic key/value rendering |
 | My IP | same client, self-lookup endpoint |
 | Ports | parallel TCP `connect()`; `host:port` forces single-port mode — or Global (Shodan InternetDB passive lookup) |
-| Cert | direct `SSLSocket` handshake with SNI; chain captured even if untrusted, trust re-checked against the system store |
+| Cert | three ways to reach TLS, first handshake that completes wins: direct `SSLSocket` handshake with SNI (implicit TLS, any port), a plaintext upgrade — `STARTTLS` on 25/587 (SMTP, via `EHLO`), 143 (IMAP), 110 (POP3 `STLS`), 21 (FTP `AUTH TLS`) — or MySQL's in-band upgrade on 3306 (greeting → 32-byte `SSLRequest` with `CLIENT_SSL` → TLS on the same socket); chain captured even if untrusted, trust re-checked against the system store over the same path, output header shows which mode landed (`Mode: …`) |
 | Headers | OkHttp GET with redirect chain, status, timing, all headers |
 | IP Scan | parallel `ping -c1` over IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines with IP + hostname (system reverse DNS, then explicit PTR against the active network's own DNS servers, then NetBIOS, then a targeted mDNS query straight at the host itself); neighbor MAC + `[gw]` flag toggleable in Scan settings (default off) + compact RTO ranges (offline lines toggleable, default off) |
 | Loop | L2 storm check (gateway ping burst — count settable in Scan settings, default 10 — DUP/RTT/loss + `/proc/net/arp` flap + RX flood rate via TrafficStats, `/proc/net/dev` fallback) + L3 TTL-ping trace with confirmed-loop early-stop (empty target = auto gateway, hold for L2/L3/Both; L3 skipped when L2 already confirms a storm) |
@@ -60,7 +60,9 @@ through the privileged system `ping` binary.
   unlock is tracked in [ROOT-ROADMAP.md](ROOT-ROADMAP.md).
 - Probing stops at the first answer from the resolved destination IP.
 - If no hop answers, the output says why (ICMP blocked or TTL ignored).
-- Cert on non-TLS ports (SMTP/IMAP) fails honestly: they need STARTTLS.
+- STARTTLS ports (SMTP 25/587, IMAP 143, POP3 110, FTP 21) and MySQL's
+  in-band SSL (3306) are upgraded in-app; rarer upgrade dialogues (XMPP
+  5222, Sieve, …) are not — those still fail honestly.
 - IP-only providers (ipify, icanhazip, amazon) report just your own IP.
 - Global Ping/Trace need no key (250 tests/hour, max 50 probes anonymous);
   optional token in Servers raises the limit. Needs internet, obviously.

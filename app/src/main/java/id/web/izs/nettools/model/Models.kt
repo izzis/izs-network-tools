@@ -78,7 +78,7 @@ data class AppSettings(
      *  missing from the list are appended in enum order (forward-compatible). */
     val toolOrder: List<String> = Tool.entries.map { it.name },
     /** Tools hidden from the home grid (Tool names). At least one must stay enabled. */
-    val disabledTools: Set<String> = setOf(Tool.HEADERS.name, Tool.CERT.name, Tool.NEIGHBOR.name),
+    val disabledTools: Set<String> = setOf(Tool.HEADERS.name, Tool.LOOP.name, Tool.NEIGHBOR.name),
     /** Home grid rows: 2 (default) = the classic split, 1 = swipeable pages
      *  of 5 tools (one visible row, more terminal height). */
     val toolGridRows: Int = 2,

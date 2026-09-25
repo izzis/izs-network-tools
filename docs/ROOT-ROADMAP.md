@@ -109,10 +109,10 @@ the same `[via …]` tag honesty.
 
 ## Cert
 
-Rootless today: direct TLS handshake — and that is already the whole job.
-The known gap (STARTTLS on SMTP/IMAP/POP/FTP) is **not a root problem**: the
-STARTTLS negotiation is plain app-level protocol any socket can speak. It
-belongs on the rootless roadmap as pure Kotlin, not here.
+No root needed, now or ever: direct TLS is user-socket territory. The
+STARTTLS gap previously recorded here (SMTP/IMAP/POP/FTP) plus MySQL's
+in-band SSLRequest upgrade now ship in the rootless tool itself — nothing
+root-only remains for Cert.
 
 ## Dig / Whois / IP Info / My IP / Headers
 
