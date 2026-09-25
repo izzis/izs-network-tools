@@ -572,12 +572,13 @@ fun HomeScreen(
                 }
             )
     }
-    // Keyboard open with the target box docked last: lift the content above the
-    // IME so the field never hides under it. Skipped when the bar is docked at
-    // the bottom — its own windowInsets already grow the bar by the keyboard,
-    // and padding here too would shrink the content twice and push the target
-    // box out of view.
-    val targetLast = state.settings.uiSections.lastOrNull() == "target"
+    // Keyboard open: lift the content above the IME so the target box never
+    // hides under it, wherever that box sits in the order — unless it is the
+    // first section (top of the screen, out of the keyboard reach anyway, so
+    // lifting would only waste terminal space). Also skipped when the bar is
+    // docked at the bottom: its own windowInsets already grow the bar by the
+    // keyboard, and padding here too would lift twice and hide the box.
+    val targetTop = state.settings.uiSections.firstOrNull() == "target"
     Scaffold(
         topBar = { if (!state.settings.topBarBottom) topBar() },
         bottomBar = { if (state.settings.topBarBottom) topBar() },
@@ -604,7 +605,7 @@ fun HomeScreen(
                 // Tighter on top only: less air between TopAppBar and the
                 // target field; sides/bottom keep 8.dp with the column gap.
                 .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
-                .then(if (targetLast && !state.settings.topBarBottom) Modifier.imePadding() else Modifier)
+                .then(if (!targetTop && !state.settings.topBarBottom) Modifier.imePadding() else Modifier)
         ) {
         Column(
             modifier = Modifier
