@@ -21,7 +21,7 @@ Package: `id.web.izs.nettools`
 | Whois     | RDAP-first, WHOIS port 43 with referral following |
 | IP Info   | Geolocation/ASN for any IP or domain |
 | My IP     | This device's current public IP |
-| Ports     | TCP port scan from a configurable list (single ports + `8000-8010` ranges) |
+| Ports     | TCP port scan from a configurable list (single ports + `8000-8010` ranges); open ports labeled with their service (`✓` probed live, `?` well-known fallback); hold Ports for list presets (Default / + Web / + Service / + Both / All known / Custom) |
 | Cert      | TLS certificate viewer on any port — implicit TLS, STARTTLS (SMTP/IMAP/POP3/FTP) or MySQL in-band SSL — subject, issuer, validity, SANs, SHA-256, trust status |
 | Headers   | HTTP response headers with redirect chain |
 | IP Scan   | Parallel ping sweep of a single IP, range, or whole `/24` — lists the hosts that are up, with hostnames |

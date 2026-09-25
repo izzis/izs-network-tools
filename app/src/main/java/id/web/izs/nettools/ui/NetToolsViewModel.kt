@@ -381,6 +381,12 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(globalCountry = c.trim().uppercase().take(2)) }
         persistGlobalPrefs()
     }
+    /** Ports scan list (preset picked from the long-press dialog): persisted
+     *  so the Settings port-list field always mirrors the last pick. */
+    fun setPortList(v: String) {
+        _state.update { it.copy(settings = it.settings.copy(portList = v)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
     private fun persistGlobalPrefs() {
         val s = _state.value
         viewModelScope.launch {
@@ -443,6 +449,10 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearOutput() = _state.update { it.copy(lines = emptyList(), loopVerdict = null, stormVerdict = null) }
+    /** Manual "open above, closed below" re-sort of a finished Ports scan. */
+    fun sortOutputOpenFirst() = _state.update {
+        it.copy(lines = PortChecker.sortLinesOpenFirst(it.lines))
+    }
 
     fun bumpFont(deltaSp: Float) {
         val next = (_state.value.settings.outputFontSp + deltaSp).coerceIn(9f, 22f)

@@ -12,7 +12,7 @@ through the privileged system `ping` binary.
 | Whois | RDAP via IANA bootstrap (`data.iana.org/rdap/dns.json`, `rdap.org`), fallback WHOIS TCP/43 with one referral hop |
 | IP Info | HTTPS JSON APIs (see SERVERS.md), generic key/value rendering |
 | My IP | same client, self-lookup endpoint |
-| Ports | parallel TCP `connect()`; `host:port` forces single-port mode — or Global (Shodan InternetDB passive lookup) |
+| Ports | parallel TCP `connect()`; `host:port` forces single-port mode — or Global (Shodan InternetDB passive lookup); open lines carry a service label right: `✓` = quick-probed on the wire (passive banner, one tiny HTTP request, TLS record), `?` = commonly-used-port fallback, none = unrecognized; hold Ports for a source + list-preset dialog (Default, + Web, + Service, + Both, All known — picked from grouped Web/Service sets — plus a Custom chip showing a hand-edited list; the pick is saved back to the Settings port list |
 | Cert | three ways to reach TLS, first handshake that completes wins: direct `SSLSocket` handshake with SNI (implicit TLS, any port), a plaintext upgrade — `STARTTLS` on 25/587 (SMTP, via `EHLO`), 143 (IMAP), 110 (POP3 `STLS`), 21 (FTP `AUTH TLS`) — or MySQL's in-band upgrade on 3306 (greeting → 32-byte `SSLRequest` with `CLIENT_SSL` → TLS on the same socket); chain captured even if untrusted, trust re-checked against the system store over the same path, output header shows which mode landed (`Mode: …`) |
 | Headers | OkHttp GET with redirect chain, status, timing, all headers |
 | IP Scan | parallel `ping -c1` over IP, `A.B.C.X-Y`, or `/24`-`/32` (empty = own /24), UP lines with IP + hostname (system reverse DNS, then explicit PTR against the active network's own DNS servers, then NetBIOS, then a targeted mDNS query straight at the host itself); neighbor MAC + `[gw]` flag toggleable in Scan settings (default off) + compact RTO ranges (offline lines toggleable, default off) |
@@ -63,6 +63,14 @@ through the privileged system `ping` binary.
 - STARTTLS ports (SMTP 25/587, IMAP 143, POP3 110, FTP 21) and MySQL's
   in-band SSL (3306) are upgraded in-app; rarer upgrade dialogues (XMPP
   5222, Sieve, …) are not — those still fail honestly.
+- Port service labels are honest: `✓` only when something was actually seen
+  on the wire (banner, HTTP reply, TLS record); `?` is a well-known-port
+  guess; ambiguous `220` banners (ftp vs smtp without keywords) and unknown
+  daemons stay unlabeled.
+- Full scans (>1000 ports, e.g. a manual `1-65535` in Settings) print open
+  lines plus `;;` progress comments only — thousands of closed lines would
+  just bury the answer; probes run 512 at a time so a 65535-port sweep
+  never opens 65535 sockets at once.
 - IP-only providers (ipify, icanhazip, amazon) report just your own IP.
 - Global Ping/Trace need no key (250 tests/hour, max 50 probes anonymous);
   optional token in Servers raises the limit. Needs internet, obviously.

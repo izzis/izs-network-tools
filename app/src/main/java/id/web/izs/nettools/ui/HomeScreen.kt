@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
@@ -119,6 +120,7 @@ import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.LoopResult
 import id.web.izs.nettools.core.LoopRunner
+import id.web.izs.nettools.core.PortChecker
 import id.web.izs.nettools.core.StormResult
 import id.web.izs.nettools.core.WifiAnalyzerRunner
 import id.web.izs.nettools.model.AppSettings
@@ -701,7 +703,8 @@ fun HomeScreen(
                     probes = state.globalProbes,
                     country = state.globalCountry,
                     simple = t == Tool.PORTS,
-                    onSave = { g, n, c ->
+                    portList = if (t == Tool.PORTS) state.settings.portList else null,
+                    onSave = { g, n, c, ports ->
                         when (t) {
                             Tool.PING -> vm.setPingGlobal(g)
                             Tool.TRACE -> vm.setTraceGlobal(g)
@@ -709,6 +712,7 @@ fun HomeScreen(
                         }
                         vm.setGlobalProbes(n)
                         vm.setGlobalCountry(c)
+                        if (ports != null && ports != state.settings.portList) vm.setPortList(ports)
                     },
                     onDismiss = { scopeTool = null }
                 )
@@ -990,6 +994,22 @@ fun HomeScreen(
                                 }
                             }
                             Spacer(Modifier.weight(1f))
+                            // Ports only, only after a finished scan: manual
+                            // re-sort with open lines above closed ones.
+                            if (state.tool == Tool.PORTS && !state.running &&
+                                state.lines.any { l -> l.startsWith("OPEN ") || l.startsWith("closed ") }
+                            ) {
+                                TextButton(onClick = { vm.sortOutputOpenFirst() }) {
+                                    Icon(
+                                        Icons.Filled.Sort,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = term.text
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Sort", color = term.text)
+                                }
+                            }
                             IconButton(onClick = { vm.bumpFont(-1f) }) {
                                 Icon(Icons.Filled.TextDecrease, contentDescription = "Smaller text", tint = term.text)
                             }
@@ -1578,13 +1598,15 @@ private fun ScopePickerDialog(
     probes: Int,
     country: String,
     simple: Boolean = false,
-    onSave: (Boolean, Int, String) -> Unit,
+    portList: String? = null,
+    onSave: (Boolean, Int, String, String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     var global by remember { mutableStateOf(isGlobal) }
     var n by remember { mutableStateOf(probes) }
     var c by remember { mutableStateOf(country) }
     var custom by remember { mutableStateOf(country) }
+    var draftList by remember(portList) { mutableStateOf(portList) }
     val localLabel = when (tool) {
         Tool.PING -> "This device"
         Tool.TRACE -> "System"
@@ -1598,7 +1620,7 @@ private fun ScopePickerDialog(
             // Fixed header (source, probes, custom field); only the
             // country preset list below scrolls.
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                listOf(false to localLabel, true to globalLabel).forEach { (g, name) ->
+                listOf(false to localLabel, true to globalLabel).forEachIndexed { idx, (g, name) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1609,6 +1631,48 @@ private fun ScopePickerDialog(
                     ) {
                         RadioButton(selected = global == g, onClick = { global = g })
                         Text(name, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    // Right under Local: how much to scan. Presets fill the
+                    // draft; Custom restores the original list (shown selected
+                    // whenever the list matches no preset, e.g. preset + a few
+                    // manual ports added in Settings). Save writes the draft
+                    // back to the Settings port list.
+                    if (idx == 0 && portList != null && !global) {
+                        Text(
+                            "Port list",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        val items = PortChecker.scanPresets.map { it.key to it.value } +
+                            ("Custom" to portList)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items.chunked(2).forEach { row ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    row.forEach { (label, value) ->
+                                        val isCustom = label == "Custom"
+                                        FilterChip(
+                                            selected = if (isCustom) {
+                                                draftList !in PortChecker.scanPresets.values
+                                            } else draftList == value,
+                                            onClick = { draftList = value },
+                                            label = {
+                                                Text(
+                                                    label,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    maxLines = 1
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(28.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if (global && !simple) {
@@ -1673,7 +1737,7 @@ private fun ScopePickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(global, n, c); onDismiss() }) { Text("Save") }
+            TextButton(onClick = { onSave(global, n, c, draftList); onDismiss() }) { Text("Save") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

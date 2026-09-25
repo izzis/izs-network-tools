@@ -74,7 +74,9 @@ object InternetDbClient {
             if (ports.isEmpty()) {
                 emit(";; no open ports reported for $ip")
             } else {
-                ports.forEach { p -> emit("OPEN   $p/tcp") }
+                ports.forEach { p ->
+                    emit(PortChecker.openLine(p, null, PortChecker.serviceByPort[p], confirmed = false))
+                }
             }
             emit("")
             emit("Done: ${ports.size} open ports (passive lookup, not a live scan).")
