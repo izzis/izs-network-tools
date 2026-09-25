@@ -32,7 +32,10 @@ Package: `id.web.izs.nettools`
 Extras: saved favorites + recent targets (max configurable, default 5),
 auto-run on tool pick and on saved-target pick (both toggleable), Global/Local
 engine choice for Ping/Trace/Ports remembered across launches, home tool
-grid order + visibility configurable in Settings → Tools, semantic
+grid order + visibility configurable in Settings → Tools (grid rows: classic
+2-row split, or compact 1-row with swipe pages of 5), top-bar Hide collapses
+the grid and is remembered across launches — long-press the shown tool name
+for a quick switcher, semantic
 output colors (toggleable, console follows light/dark theme), text size +/-, clear
 output (runs append, capped at 2000 lines), 5 app themes (AMOLED, Dark, Darker, Sand,
 Light gray) with per-section custom colors saved as named schemes

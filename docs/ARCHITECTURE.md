@@ -78,5 +78,10 @@ Rules learned the hard way:
   `Tool` enum order by default with Headers + Cert off: top row Ping–My IP,
   bottom row Trace, Ports, Loop, Neighbor, IP Scan (5+5). The split is dynamic
   (`half = (n+1)/2`) — no hardcoded row size, no placeholder cells.
+  `tool_grid_rows` (default 2) picks the classic split or a compact 1-row
+  layout — fixed pages of 5 tools in a snapping `HorizontalPager`.
+  `hide_tool_grid` persists the top-bar Hide collapse across launches; while
+  collapsed, long-pressing the shown tool name opens a quick switcher
+  (enabled tools only, same order/auto-run semantics as a grid tap).
   Loop mode (L2/L3/Both) is per-session state, not persisted (unlike the
   Ping/Trace/Ports scopes, which now live in `global_prefs`).

@@ -56,6 +56,8 @@ class SettingsRepository(private val context: Context) {
         val WIFI_FILTER = stringPreferencesKey("wifi_filter")
         val TOOL_ORDER = stringPreferencesKey("tool_order")
         val DISABLED_TOOLS = stringPreferencesKey("disabled_tools")
+        val TOOLGRIDROWS = intPreferencesKey("tool_grid_rows")
+        val HIDEGRID = intPreferencesKey("hide_tool_grid")
         val WIFI_BANDS = stringPreferencesKey("wifi_bands")
         val WIFI_ROWS = intPreferencesKey("wifi_rows")
         val LAST_TOOL = stringPreferencesKey("last_tool")
@@ -95,7 +97,9 @@ class SettingsRepository(private val context: Context) {
             colorSchemes = decodeSchemes(p[K.SCHEMES]),
             schemeName = p[K.SCHEME_NAME] ?: "",
             toolOrder = decodeStrings(p[K.TOOL_ORDER], AppSettings().toolOrder),
-            disabledTools = decodeStrings(p[K.DISABLED_TOOLS], AppSettings().disabledTools.toList()).toSet()
+            disabledTools = decodeStrings(p[K.DISABLED_TOOLS], AppSettings().disabledTools.toList()).toSet(),
+            toolGridRows = p[K.TOOLGRIDROWS]?.takeIf { it == 1 || it == 2 } ?: 2,
+            hideToolGrid = (p[K.HIDEGRID] ?: 0) == 1
         )
     }
 
@@ -131,6 +135,8 @@ class SettingsRepository(private val context: Context) {
             p[K.SCHEME_NAME] = s.schemeName
             p[K.TOOL_ORDER] = json.encodeToString(s.toolOrder)
             p[K.DISABLED_TOOLS] = json.encodeToString(s.disabledTools.toList())
+            p[K.TOOLGRIDROWS] = if (s.toolGridRows == 1) 1 else 2
+            p[K.HIDEGRID] = if (s.hideToolGrid) 1 else 0
         }
     }
 

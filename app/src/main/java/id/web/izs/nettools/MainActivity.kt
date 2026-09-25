@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -19,6 +20,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.ui.AppTheme
@@ -46,6 +49,14 @@ class MainActivity : ComponentActivity() {
                 WindowCompat.getInsetsController(window, window.decorView)
                     .isAppearanceLightStatusBars = !AppTheme.isDark(uiState.settings.theme)
             }
+            // App-wide long-press: 350 ms instead of the platform 500 ms
+            // (top-bar quick switcher, grid tool cells, anything added later).
+            val viewConfig = LocalViewConfiguration.current
+            CompositionLocalProvider(
+                LocalViewConfiguration provides object : ViewConfiguration by viewConfig {
+                    override val longPressTimeoutMillis: Long = 350L
+                }
+            ) {
             MaterialTheme(colorScheme = scheme) {
                 // Don't draw real content until DataStore has delivered the saved
                 // settings — otherwise the first frames flash the default theme.
@@ -83,6 +94,7 @@ class MainActivity : ComponentActivity() {
                     else -> HomeScreen(vm, onOpenSettings = { screen = "settings" }, onOpenHosts = { screen = "hosts" })
                 }
                 }
+            }
             }
         }
     }

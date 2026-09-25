@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -51,6 +53,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +72,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -488,18 +493,55 @@ fun HomeScreen(
                 actions = {
                     // Hide collapses the tool grid (taller terminal). When
                     // collapsed, this button shows the active tool and re-opens
-                    // the grid on tap so you can still switch tools.
-                    TextButton(onClick = { vm.toggleToolGrid() }) {
+                    // the grid on tap. Long press = quick tool switcher while
+                    // collapsed (with the grid visible it IS the picker, and
+                    // switching is blocked while running — same as the grid).
+                    // One combinedClickable node (same pattern as the grid
+                    // cells): tap and long-press never race a second detector.
+                    var toolMenu by remember { mutableStateOf(false) }
+                    Box {
                         Text(
-                            if (state.hideToolGrid) state.tool.title else "Hide",
+                            text = if (state.hideToolGrid) state.tool.title else "Hide",
                             style = MaterialTheme.typography.labelLarge,
                             color = if (state.hideToolGrid) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
-                            maxLines = 1
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .combinedClickable(
+                                    onClick = { vm.toggleToolGrid() },
+                                    onLongClick = {
+                                        if (state.hideToolGrid && !state.running) toolMenu = true
+                                    }
+                                )
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
                         )
+                        DropdownMenu(
+                            expanded = toolMenu,
+                            onDismissRequest = { toolMenu = false }
+                        ) {
+                            // Enabled tools only, in the user's grid order —
+                            // disabled-in-Settings tools stay unreachable here
+                            // too. Selection mirrors a grid tap.
+                            state.settings.orderedEnabledTools().forEach { t ->
+                                DropdownMenuItem(
+                                    text = { Text(t.title) },
+                                    trailingIcon = {
+                                        if (t == state.tool) {
+                                            Icon(Icons.Filled.Check, contentDescription = "Current")
+                                        }
+                                    },
+                                    onClick = {
+                                        toolMenu = false
+                                        if (state.settings.autoRunOnTool) vm.selectAndRun(t)
+                                        else vm.setTool(t)
+                                    }
+                                )
+                            }
+                        }
                     }
                     IconButton(onClick = onOpenHosts) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Manage saved")
@@ -614,6 +656,7 @@ fun HomeScreen(
                     selected = state.tool,
                     enabled = !state.running,
                     settings = state.settings,
+                    rows = state.settings.toolGridRows,
                     extraSub = { t ->
                         when (t) {
                             Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
@@ -1269,21 +1312,42 @@ private fun StormVerdictBanner(verdict: StormResult) {
 }
 
 /**
- * Tool selector: always exactly 2 rows, items separated by thin divider
- * lines — no boxes, no chips. Tap = run immediately.
+ * Tool selector: items separated by thin divider lines — no boxes, no chips.
+ * Tap = run immediately.
  * Long-press a server-backed tool (Dig/Whois/IP Info/My IP) = change server.
+ * [rows] 2 (default) = the classic two-row split; 1 = one visible row in
+ * swipeable pages of 5 (Settings → Tools → "Home grid rows").
  */
 @Composable
 private fun ToolSelector(
     selected: Tool,
     enabled: Boolean,
     settings: AppSettings,
+    rows: Int,
     extraSub: (Tool) -> String?,
     onSelect: (Tool) -> Unit,
     onLongPress: (Tool) -> Unit
 ) {
     val tools = settings.orderedEnabledTools()
     if (tools.isEmpty()) return
+    if (rows == 1) {
+        // Fixed pages of 5, snap per swipe (no free scrolling). 5 or fewer
+        // tools = a single static row, no pager needed.
+        val pageSize = 5
+        val pages = (tools.size + pageSize - 1) / pageSize
+        if (pages <= 1) {
+            ToolSelectorRow(tools, selected, enabled, settings, extraSub, onSelect, onLongPress)
+        } else {
+            val pagerState = rememberPagerState { pages }
+            HorizontalPager(state = pagerState) { page ->
+                ToolSelectorRow(
+                    tools.drop(page * pageSize).take(pageSize),
+                    selected, enabled, settings, extraSub, onSelect, onLongPress
+                )
+            }
+        }
+        return
+    }
     val half = (tools.size + 1) / 2
     Column(modifier = Modifier.fillMaxWidth()) {
         ToolSelectorRow(tools.take(half), selected, enabled, settings, extraSub, onSelect, onLongPress)
@@ -1355,8 +1419,10 @@ private fun ToolSelectorRow(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     // Long names ("WiFi Analyzer") take both text lines and skip
-                    // the subtitle, so the cell stays as tall as every other
-                    // 2-line cell (title + gray sub) — the row never grows.
+                    // the subtitle. The wrapped title halves its line height so
+                    // the cell measures exactly like every title+sub cell
+                    // (2 × 18sp = 20sp + 16sp) — every row and pager page keeps
+                    // the same height, matching the shorter all-title row.
                     val twoLineTitle = t.title.length > 11
                     Text(
                         t.title,
@@ -1365,15 +1431,17 @@ private fun ToolSelectorRow(
                         color = if (isSel) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
-                        maxLines = if (twoLineTitle) 2 else 1
+                        maxLines = if (twoLineTitle) 2 else 1,
+                        lineHeight = if (twoLineTitle) 18.sp else TextUnit.Unspecified
                     )
                     if (!twoLineTitle) {
                         // Short titles keep the subtitle so every cell stays
                         // uniformly 2 lines tall (nbsp placeholder when none).
                         Text(
-                            server ?: " ",
+                            server ?: " ",
                             style = MaterialTheme.typography.bodySmall,
                             fontSize = 10.sp,
+                            lineHeight = 16.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis

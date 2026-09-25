@@ -93,7 +93,9 @@ data class HomeUiState(
     val wifiSort: String = WifiAnalyzerRunner.SORT_RSSI,
     /** AP row count 2 | 3 (3 = +vendor/standard/(gone) line). Persisted. */
     val wifiRows: Int = WifiAnalyzerRunner.ROWS_2,
-    /** Session-only: collapse the home tool grid (always shown on app start). */
+    /** Collapse the home tool grid (top-bar Hide). Persisted
+     *  (AppSettings.hideToolGrid) and restored on app start; mirrored here so
+     *  rapid toggles stay in sync before the DataStore write lands. */
     val hideToolGrid: Boolean = false
 )
 
@@ -138,6 +140,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 it.copy(
                     tool = tool,
                     target = bar,
+                    hideToolGrid = settings.hideToolGrid,
                     loopVerdict = null,
                     stormVerdict = null,
                     isTargetSaved = bar.isNotEmpty() && repo.isSaved(bar)
@@ -397,9 +400,13 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun setMessage(m: String) = _state.update { it.copy(message = m) }
 
     /** Top-bar Hide/Show: collapse the tool grid for more terminal height.
-     *  Session-only — not persisted; next app start shows the grid again. */
+     *  Persisted — the collapsed state is restored on the next app start. */
     fun toggleToolGrid() {
         _state.update { it.copy(hideToolGrid = !it.hideToolGrid) }
+        val hidden = _state.value.hideToolGrid
+        viewModelScope.launch {
+            repo.saveSettings(_state.value.settings.copy(hideToolGrid = hidden))
+        }
     }
 
     fun pickTarget(host: String) {

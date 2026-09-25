@@ -26,6 +26,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -456,6 +457,32 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
         known + Tool.entries.filter { it !in known }
     }
     val enabledCount = ordered.count { it.name !in s.disabledTools }
+    // Grid height: 2 rows (classic split, default) or 1 row = swipeable
+    // pages of 5 tools (more terminal height on Home).
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Home grid rows")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = s.toolGridRows == 1,
+                onClick = { update(s.copy(toolGridRows = 1)) },
+                label = { Text("1") }
+            )
+            FilterChip(
+                selected = s.toolGridRows == 2,
+                onClick = { update(s.copy(toolGridRows = 2)) },
+                label = { Text("2") }
+            )
+        }
+    }
+    Text(
+        "1 = one row, swipe for the next 5 tools · 2 = classic two-row split",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
     Text(
         "Pick which tools show on Home and in what order. At least one must stay on.",
         style = MaterialTheme.typography.bodySmall,
