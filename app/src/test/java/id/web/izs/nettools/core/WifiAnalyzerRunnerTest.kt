@@ -440,6 +440,74 @@ class WifiAnalyzerRunnerTest {
         assertTrue(line2.startsWith("aa:bb:cc:dd:ee:ff"))
     }
 
+    // --- 3-row display ---
+
+    @Test
+    fun formatThreeRowsMovesMarkersAndStandardToLine3() {
+        val block = WifiAnalyzerRunner.formatAp(
+            ap(freq = 5180, widthMhz = 80, standard = "802.11ac"),
+            gone = true,
+            rows = WifiAnalyzerRunner.ROWS_3,
+            vendor = "Ubiquiti"
+        )
+        val lines = block.split("\n")
+        assertEquals(3, lines.size)
+        val (line1, line2, line3) = lines
+        // line 1: SSID/signal only — markers moved away
+        assertTrue(line1.startsWith("Office"))
+        assertFalse(line1.contains("(gone)"))
+        // line 2: MAC columns, standard moved to line 3
+        assertTrue(line2.startsWith("aa:bb:cc:dd:ee:ff"))
+        assertTrue(line2.contains("ch 36")) // freq 5180 → ch 36
+        assertTrue(line2.contains("80MHz"))
+        assertTrue(line2.contains("WPA2"))
+        assertFalse(line2.contains("802.11"))
+        // line 3: vendor(19) · 802.11ac (WiFi 5) · marker; label sits under
+        // line 2's `ch` column (MAC 17 + 2 spaces); MAC never repeats.
+        assertTrue(line3.startsWith("Ubiquiti"))
+        assertEquals(19, line3.indexOf("802.11ac (WiFi 5)"))
+        assertTrue(line3.trimEnd().endsWith("(gone)"))
+        assertFalse(line3.contains("aa:bb"))
+    }
+
+    @Test
+    fun formatThreeRowsBlankVendorKeepsColumnAlignment() {
+        val l3 = WifiAnalyzerRunner.formatAp(
+            ap(standard = "802.11ax"), rows = WifiAnalyzerRunner.ROWS_3, vendor = ""
+        ).split("\n")[2]
+        assertTrue(l3.take(19).isBlank())
+        assertEquals(19, l3.indexOf("802.11ax (WiFi 6)"))
+    }
+
+    @Test
+    fun formatThreeRowsOmitsLine3WhenNothingToShow() {
+        // No vendor, no standard, no markers → falls back to a 2-line block.
+        val plain = WifiAnalyzerRunner.formatAp(
+            ap(standard = ""), rows = WifiAnalyzerRunner.ROWS_3, vendor = ""
+        )
+        assertEquals(2, plain.split("\n").size)
+        // A marker alone is enough to justify line 3.
+        val gone = WifiAnalyzerRunner.formatAp(
+            ap(standard = ""), rows = WifiAnalyzerRunner.ROWS_3, vendor = "", gone = true
+        )
+        assertEquals(3, gone.split("\n").size)
+        assertTrue(gone.split("\n")[2].trimEnd().endsWith("(gone)"))
+    }
+
+    @Test
+    fun standardLabelMapsWifiGenerations() {
+        fun label(std: String, freq: Int = 5180) =
+            WifiAnalyzerRunner.standardLabel(ap(freq = freq, standard = std))
+        assertEquals("802.11n (WiFi 4)", label("802.11n"))
+        assertEquals("802.11ac (WiFi 5)", label("802.11ac"))
+        assertEquals("802.11ax (WiFi 6)", label("802.11ax", 5180))
+        assertEquals("802.11ax (WiFi 6E)", label("802.11ax", 6135))
+        assertEquals("802.11be (WiFi 7)", label("802.11be"))
+        assertEquals("802.11ad", label("802.11ad"))
+        assertEquals("802.11a/b/g", label("802.11a/b/g"))
+        assertEquals("", label(""))
+    }
+
     // --- sort / re-sort ---
 
     @Test
@@ -511,5 +579,30 @@ class WifiAnalyzerRunnerTest {
         assertTrue(WifiAnalyzerRunner.isApLiveLine(line))
         assertFalse(WifiAnalyzerRunner.isApLiveLine("${GlobalpingRunner.LIVE}ch:6\nch   6"))
         assertFalse(WifiAnalyzerRunner.isApLiveLine("plain notice"))
+    }
+
+    @Test
+    fun threeRowBlocksStillSortAndParseChannelFromLine2() {
+        // "ch 12" in an SSID (line 1) or vendor (line 3) must never leak
+        // into the channel parse — only line 2 is the MAC/channel row.
+        val weak = "${GlobalpingRunner.LIVE}aa:aa:aa:aa:aa:01\n" +
+            WifiAnalyzerRunner.formatAp(
+                ap(bssid = "aa:aa:aa:aa:aa:01", ssid = "ch 12 house", rssi = -80),
+                rows = WifiAnalyzerRunner.ROWS_3, vendor = "Foo ch12"
+            )
+        val strong = "${GlobalpingRunner.LIVE}aa:aa:aa:aa:aa:02\n" +
+            WifiAnalyzerRunner.formatAp(
+                ap(bssid = "aa:aa:aa:aa:aa:02", ssid = "Strong", rssi = -30),
+                rows = WifiAnalyzerRunner.ROWS_3, vendor = "ZTE"
+            )
+        assertTrue(WifiAnalyzerRunner.isApLiveLine(weak))
+        assertEquals(6, WifiAnalyzerRunner.apLineChannel(weak))
+        assertEquals("ch 12 house", WifiAnalyzerRunner.apLineSsid(weak))
+
+        val sorted = WifiAnalyzerRunner.reorderApLines(
+            listOf(weak, strong), WifiAnalyzerRunner.SORT_RSSI
+        )
+        assertEquals("Strong", WifiAnalyzerRunner.apLineSsid(sorted[0]))
+        assertEquals("ch 12 house", WifiAnalyzerRunner.apLineSsid(sorted[1]))
     }
 }

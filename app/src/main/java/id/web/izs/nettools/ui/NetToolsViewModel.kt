@@ -20,6 +20,7 @@ import id.web.izs.nettools.core.IpScan
 import id.web.izs.nettools.core.InternetDbClient
 import id.web.izs.nettools.core.IpInfoClient
 import id.web.izs.nettools.core.NeighborRunner
+import id.web.izs.nettools.core.OuiDb
 import id.web.izs.nettools.core.PingRunner
 import id.web.izs.nettools.core.PortChecker
 import id.web.izs.nettools.core.TargetParser
@@ -28,6 +29,7 @@ import id.web.izs.nettools.core.WhoisRdapClient
 import id.web.izs.nettools.core.WifiAnalyzerRunner
 import id.web.izs.nettools.data.SettingsRepository
 import id.web.izs.nettools.model.AppSettings
+import id.web.izs.nettools.model.GlobalPrefs
 import id.web.izs.nettools.model.SavedHost
 import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
@@ -68,9 +70,9 @@ data class HomeUiState(
     val recent: List<String> = emptyList(),
     val dropExpanded: Boolean = false,
     val isTargetSaved: Boolean = false,
-    /** WiFi Analyzer chip filters. Band is persisted (DataStore) across launches;
-     *  channel / security / display are session-only. Band + security are
-     *  multi-select; default = every option. */
+    /** WiFi Analyzer chip filters. Band + row count are persisted (DataStore)
+     *  across launches; channel / security / display are session-only.
+     *  Band + security are multi-select; default = every option. */
     val wifiBand: Set<String> = setOf("2.4", "5", "6"),
     val wifiChannel: Int = -1,
     val wifiSecurity: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
@@ -89,6 +91,8 @@ data class HomeUiState(
     /** List-sort: WifiAnalyzerRunner.SORT_RSSI | SORT_SSID | SORT_CHANNEL.
      *  Session-only; Channel display ignores it (always channel no). */
     val wifiSort: String = WifiAnalyzerRunner.SORT_RSSI,
+    /** AP row count 2 | 3 (3 = +vendor/standard/(gone) line). Persisted. */
+    val wifiRows: Int = WifiAnalyzerRunner.ROWS_2,
     /** Session-only: collapse the home tool grid (always shown on app start). */
     val hideToolGrid: Boolean = false
 )
@@ -144,6 +148,28 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val bands = repo.wifiBands.first()
             _state.update { it.copy(wifiBand = bands) }
+        }
+        // Restore the AP row count (2 | 3) for the List display.
+        viewModelScope.launch {
+            val rows = repo.wifiRows.first()
+            _state.update { it.copy(wifiRows = rows) }
+        }
+        // Restore the Global-vs-Local engine choice (Ping/Trace/Ports) + options.
+        viewModelScope.launch {
+            val g = repo.globalPrefs.first()
+            _state.update {
+                it.copy(
+                    pingGlobal = g.ping,
+                    traceGlobal = g.trace,
+                    portsGlobal = g.ports,
+                    globalProbes = g.probes,
+                    globalCountry = g.country
+                )
+            }
+        }
+        // Preload the OUI vendor table off the main thread (3-row display).
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            OuiDb.ensureLoaded(getApplication<Application>().assets)
         }
     }
 
@@ -241,19 +267,37 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         if (cur.wifiDisplay == v) return
         _state.update { it.copy(wifiDisplay = v) }
         if (cur.tool != Tool.WIFIANALYZER) return
-        // Drop the old view's LIVE rows (and count notices) so modes never
-        // mix under the same blue header.
-        _state.update { s ->
-            s.copy(lines = s.lines.filter {
-                !it.startsWith(GlobalpingRunner.LIVE) &&
-                    !it.startsWith(";; 0 APs") &&
-                    !(it.startsWith(";; ") && it.contains("APs on air"))
-            })
-        }
+        clearWifiView()
         if (cur.running) {
             stop()
             run()
         }
+    }
+
+    /** Switch AP row count 2 ↔ 3; persisted for the next launch (the one
+     *  Display setting that survives restarts). Re-runs a live session so
+     *  the new layout appears now — rows are baked into the emitted text. */
+    fun setWifiRows(v: Int) {
+        val cur = _state.value
+        if (cur.wifiRows == v) return
+        _state.update { it.copy(wifiRows = v) }
+        viewModelScope.launch { repo.saveWifiRows(v) }
+        if (cur.tool != Tool.WIFIANALYZER) return
+        clearWifiView()
+        if (cur.running) {
+            stop()
+            run()
+        }
+    }
+
+    /** Drop the old view's LIVE rows (and count notices) so modes never
+     *  mix under the same blue header. */
+    private fun clearWifiView() = _state.update { s ->
+        s.copy(lines = s.lines.filter {
+            !it.startsWith(GlobalpingRunner.LIVE) &&
+                !it.startsWith(";; 0 APs") &&
+                !(it.startsWith(";; ") && it.contains("APs on air"))
+        })
     }
 
     /** ISO country for WiFi channel tables: network SIM/roaming ISO → device
@@ -289,6 +333,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         security = _state.value.wifiSecurity,
         display = _state.value.wifiDisplay,
         sort = _state.value.wifiSort,
+        rows = _state.value.wifiRows,
         country = wifiCountry
     )
 
@@ -311,13 +356,42 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             run()
         }
     }
-    /** Global scope is per-session (like Dig's record type), not saved. */
-    fun setPingGlobal(g: Boolean) = _state.update { it.copy(pingGlobal = g) }
-    fun setTraceGlobal(g: Boolean) = _state.update { it.copy(traceGlobal = g) }
-    /** Global Ports (Shodan InternetDB) is per-session, default local. */
-    fun setPortsGlobal(g: Boolean) = _state.update { it.copy(portsGlobal = g) }
-    fun setGlobalProbes(n: Int) = _state.update { it.copy(globalProbes = n) }
-    fun setGlobalCountry(c: String) = _state.update { it.copy(globalCountry = c.trim().uppercase().take(2)) }
+    /** Global scope (Local vs Globalping / InternetDB) + probes/country:
+     *  saved on every toggle and restored on launch (fresh install = Local). */
+    fun setPingGlobal(g: Boolean) {
+        _state.update { it.copy(pingGlobal = g) }
+        persistGlobalPrefs()
+    }
+    fun setTraceGlobal(g: Boolean) {
+        _state.update { it.copy(traceGlobal = g) }
+        persistGlobalPrefs()
+    }
+    fun setPortsGlobal(g: Boolean) {
+        _state.update { it.copy(portsGlobal = g) }
+        persistGlobalPrefs()
+    }
+    fun setGlobalProbes(n: Int) {
+        _state.update { it.copy(globalProbes = n) }
+        persistGlobalPrefs()
+    }
+    fun setGlobalCountry(c: String) {
+        _state.update { it.copy(globalCountry = c.trim().uppercase().take(2)) }
+        persistGlobalPrefs()
+    }
+    private fun persistGlobalPrefs() {
+        val s = _state.value
+        viewModelScope.launch {
+            repo.saveGlobalPrefs(
+                GlobalPrefs(
+                    ping = s.pingGlobal,
+                    trace = s.traceGlobal,
+                    ports = s.portsGlobal,
+                    probes = s.globalProbes,
+                    country = s.globalCountry
+                )
+            )
+        }
+    }
     fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
     fun clearMessage() = _state.update { it.copy(message = null) }
     fun setMessage(m: String) = _state.update { it.copy(message = m) }

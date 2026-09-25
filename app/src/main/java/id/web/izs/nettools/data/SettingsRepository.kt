@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import id.web.izs.nettools.model.AppSettings
+import id.web.izs.nettools.model.GlobalPrefs
 import id.web.izs.nettools.model.SavedHost
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -56,7 +57,9 @@ class SettingsRepository(private val context: Context) {
         val TOOL_ORDER = stringPreferencesKey("tool_order")
         val DISABLED_TOOLS = stringPreferencesKey("disabled_tools")
         val WIFI_BANDS = stringPreferencesKey("wifi_bands")
+        val WIFI_ROWS = intPreferencesKey("wifi_rows")
         val LAST_TOOL = stringPreferencesKey("last_tool")
+        val GLOBAL_PREFS = stringPreferencesKey("global_prefs")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -169,6 +172,16 @@ class SettingsRepository(private val context: Context) {
         context.prefs.edit { it[K.WIFI_BANDS] = json.encodeToString(bands.toList().sorted()) }
     }
 
+    /** WiFi Analyzer AP row count (2 = compact, 3 = +vendor/standard line),
+     *  restored on launch. Fresh install = 2. */
+    val wifiRows: Flow<Int> = context.prefs.data.map { p ->
+        p[K.WIFI_ROWS]?.takeIf { it == 2 || it == 3 } ?: 2
+    }
+
+    suspend fun saveWifiRows(v: Int) {
+        context.prefs.edit { it[K.WIFI_ROWS] = v }
+    }
+
     /** Last selected tool name, restored on launch (select only, no auto-run).
      *  Fresh install = "PING". */
     val lastTool: Flow<String> = context.prefs.data.map { p ->
@@ -177,6 +190,21 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveLastTool(v: String) {
         context.prefs.edit { it[K.LAST_TOOL] = v }
+    }
+
+    /** Global-vs-Local engine per tool (Ping/Trace/Ports) + Globalping
+     *  probes/country, restored on launch. Fresh install = Local / 10 / worldwide. */
+    val globalPrefs: Flow<GlobalPrefs> = context.prefs.data.map { p ->
+        val g = try {
+            p[K.GLOBAL_PREFS]?.let { json.decodeFromString<GlobalPrefs>(it) } ?: GlobalPrefs()
+        } catch (_: Exception) {
+            GlobalPrefs()
+        }
+        g.copy(probes = g.probes.coerceIn(1, 50), country = g.country.trim().uppercase().take(2))
+    }
+
+    suspend fun saveGlobalPrefs(g: GlobalPrefs) {
+        context.prefs.edit { it[K.GLOBAL_PREFS] = json.encodeToString(g) }
     }
 
     private fun decodeColors(s: String?): Map<String, String> {

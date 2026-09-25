@@ -100,7 +100,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.SpanStyle
@@ -244,20 +243,20 @@ private fun OutputLine(
             !colored -> Text(
                 line,
                 color = p.text,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = TermMono,
                 fontSize = fontSize
             )
-            // WiFi AP block: line 1 = SSID/signal/(gone)/(filter), line 2 = MAC/ch/width/band/sec/802.11.
+            // WiFi AP block: line 1 = SSID/signal, line 2 = MAC/ch/width/band/sec,
+            // optional line 3 (3-row mode) = vendor · 802.11 (WiFi N) · markers.
             // Connected AP: line 1 is green instead of the usual semantic color.
-            // (gone)/(filter) rows dim BOTH lines so inactive APs recede.
-            line.indexOf('\n').let { nl ->
-                nl > 0 && wifiMacLine.matches(line.substring(nl + 1).trim())
+            // (gone)/(filter) rows dim ALL lines so inactive APs recede.
+            line.split('\n').let { ls ->
+                ls.size >= 2 && wifiMacLine.matches(ls[1].trim())
             } -> {
-                val nl = line.indexOf('\n')
-                val head = line.substring(0, nl)
-                val tail = line.substring(nl + 1)
-                val inactive = head.contains("(gone)") || head.contains("(filter)")
-                val mac = tail.trim().substringBefore(' ')
+                val lines = line.split('\n')
+                val head = lines[0]
+                val inactive = line.contains("(gone)") || line.contains("(filter)")
+                val mac = lines[1].trim().substringBefore(' ')
                 val titleColor = when {
                     inactive -> p.dim
                     wifiConnBssid.isNotEmpty() && mac.equals(wifiConnBssid, true) -> p.green
@@ -269,12 +268,14 @@ private fun OutputLine(
                         withStyle(SpanStyle(color = titleColor)) {
                             append(head)
                         }
-                        append('\n')
-                        withStyle(SpanStyle(color = detailColor)) {
-                            append(tail)
+                        lines.drop(1).forEach { l ->
+                            append('\n')
+                            withStyle(SpanStyle(color = detailColor)) {
+                                append(l)
+                            }
                         }
                     },
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = TermMono,
                     fontSize = fontSize
                 )
             }
@@ -297,14 +298,14 @@ private fun OutputLine(
                                 append(kv.groupValues[2])
                             }
                         },
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = TermMono,
                         fontSize = fontSize
                     )
                 } else {
                     Text(
                         line,
                         color = terminalLineColor(line, p),
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = TermMono,
                         fontSize = fontSize
                     )
                 }
@@ -680,7 +681,19 @@ fun HomeScreen(
             if (state.tool == Tool.DIG) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Record type", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Record type", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                "DNS server: ${state.settings.dnsServer} - change in Settings",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             DnsRunner.types.forEach { ty ->
                                 FilterChip(
@@ -690,20 +703,19 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        Text("DNS server: ${state.settings.dnsServer} (change in Settings)", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             if (state.tool == Tool.TRACE) {
                 Text(
-                    (if (state.traceGlobal) "Global trace via Globalping (x${state.globalProbes} probes) - hold Trace to change"
-                    else "Max ${state.settings.maxHops} hops - change in Settings (hold Trace for Global)"),
+                    (if (state.traceGlobal) "Globalping x${state.globalProbes} - hold Trace to change"
+                    else "Max ${state.settings.maxHops} hops (Settings) - hold Trace for Global"),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.LOOP) {
                 Text(
-                    "Empty target = auto gateway (L2 storm + L3 trace, max ${state.settings.maxHops} hops) - or type a host/IP to trace L3 there (hold Loop for L2/L3/Both)",
+                    "Detects L2 broadcast storms and L3 routing loops - hold Loop to pick L2/L3/Both",
                     style = MaterialTheme.typography.bodySmall
                 )
                 // Verdict banners: pop in when the Loop run finishes (or stops
@@ -713,19 +725,19 @@ fun HomeScreen(
             }
             if (state.tool == Tool.CERT) {
                 Text(
-                    "Port 443 by default - type host:port for custom (e.g. mail.example.com:993)",
+                    "Port 443 - type host:port for another port",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.MYIP) {
                 Text(
-                    "Shows this device's current public IP - target field is ignored",
+                    "This device's public IP - target field ignored",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.NEIGHBOR) {
                 Text(
-                    "Hears who's on the LAN: MikroTik (MNDP, even without IP), services (mDNS), devices (SSDP) - target field is ignored",
+                    "LAN discovery: MNDP + mDNS + SSDP - target ignored",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -737,34 +749,34 @@ fun HomeScreen(
             }
             if (state.tool == Tool.PORTS) {
                 Text(
-                    "Scans the port list from Settings (e.g. 22,80,8000-8010) - or type host:port for a single port",
+                    "Port list from Settings - or host:port for one port",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.HEADERS) {
                 Text(
-                    "Type a URL or host, path included (https is assumed)",
+                    "URL or host (path included, https assumed)",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
 
             if (state.tool == Tool.SWEEP) {
                 Text(
-                    "Ping scan - range autofills above (e.g. 192.168.1.1-50, 10.0.0.0/24)",
+                    "Ping scan - range autofills above (e.g. 10.0.0.0/24)",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.WIFIANALYZER) {
                 Text(
-                    "Live nearby APs, re-scanned every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s - " +
-                        "type part of an SSID or MAC above to match (optional)",
+                    "Live APs every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s - type SSID/MAC above to filter",
                     style = MaterialTheme.typography.bodySmall
                 )
                 // Filters as a Settings-style 2-row block: dimension tabs on
                 // top, values for the active dimension below — fixed height
                 // no matter how many filter kinds exist. Display (rightmost)
-                // = List/Channel on the left · "Sort:" + RSSI/SSID/Ch pinned
-                // right (List only; Channel always sorts by channel no).
+                // = List/Channel + "Sort:" + RSSI/SSID/Ch in a horizontally
+                // scrollable group · Rows: 2/3 pinned at the far right
+                // (List only; Channel always sorts by channel no).
                 // SSIDs stay free text in the target bar (names are too
                 // random to enumerate).
                 var wifiFilterDim by remember { mutableStateOf(0) }
@@ -808,33 +820,61 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        listOf(
-                            WifiAnalyzerRunner.DISPLAY_LIST to "List",
-                            WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
-                        ).forEach { (value, label) ->
-                            FilterChip(
-                                selected = value == state.wifiDisplay,
-                                onClick = { vm.setWifiDisplay(value) },
-                                label = {
-                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                },
-                                modifier = Modifier.height(28.dp)
+                        // Scrollable group on the left: List/Channel + Sort.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            listOf(
+                                WifiAnalyzerRunner.DISPLAY_LIST to "List",
+                                WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
+                            ).forEach { (value, label) ->
+                                FilterChip(
+                                    selected = value == state.wifiDisplay,
+                                    onClick = { vm.setWifiDisplay(value) },
+                                    label = {
+                                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                    },
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Sort:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            listOf(
+                                WifiAnalyzerRunner.SORT_RSSI to "RSSI",
+                                WifiAnalyzerRunner.SORT_SSID to "SSID",
+                                WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
+                            ).forEach { (value, label) ->
+                                FilterChip(
+                                    selected = value == state.wifiSort,
+                                    onClick = { vm.setWifiSort(value) },
+                                    label = {
+                                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                    },
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
                         }
-                        Spacer(Modifier.weight(1f))
+                        // Rows: 2/3 — always visible, pinned at the far right.
                         Text(
-                            "Sort:",
+                            "Rows:",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         listOf(
-                            WifiAnalyzerRunner.SORT_RSSI to "RSSI",
-                            WifiAnalyzerRunner.SORT_SSID to "SSID",
-                            WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
+                            WifiAnalyzerRunner.ROWS_2 to "2",
+                            WifiAnalyzerRunner.ROWS_3 to "3"
                         ).forEach { (value, label) ->
                             FilterChip(
-                                selected = value == state.wifiSort,
-                                onClick = { vm.setWifiSort(value) },
+                                selected = value == state.wifiRows,
+                                onClick = { vm.setWifiRows(value) },
                                 label = {
                                     Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                                 },
@@ -935,8 +975,8 @@ fun HomeScreen(
                                     // WiFi AP blocks get bottom margin so each
                                     // SSID+MAC pair is a distinct visual group.
                                     val shown = GlobalpingRunner.displayOf(raw)
-                                    val isApBlock = shown.indexOf('\n').let { nl ->
-                                        nl > 0 && wifiMacLine.matches(shown.substring(nl + 1).trim())
+                                    val isApBlock = shown.split('\n').let { ls ->
+                                        ls.size >= 2 && wifiMacLine.matches(ls[1].trim())
                                     }
                                     OutputLine(
                                         line = raw,
@@ -1078,7 +1118,7 @@ private fun TargetRow(
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = TermMono,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1160,7 +1200,7 @@ private fun LoopVerdictBanner(verdict: LoopResult) {
                 Text(
                     detail,
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = TermMono,
                     color = onContainer
                 )
             }
@@ -1224,7 +1264,7 @@ private fun StormVerdictBanner(verdict: StormResult) {
                 Text(
                     detail,
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = TermMono,
                     color = onContainer
                 )
             }
@@ -1672,7 +1712,7 @@ private fun ServerPickerDialog(
                             Text(
                                 url,
                                 style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = TermMono,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

@@ -43,7 +43,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.web.izs.nettools.data.SettingsRepository
@@ -128,7 +127,7 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(h.label, style = MaterialTheme.typography.titleSmall)
-                                Text(h.host, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                                Text(h.host, style = MaterialTheme.typography.bodySmall, fontFamily = TermMono)
                             }
                             IconButton(onClick = { onPick(h.host) }) {
                                 Icon(Icons.Filled.PlayArrow, contentDescription = "Use")

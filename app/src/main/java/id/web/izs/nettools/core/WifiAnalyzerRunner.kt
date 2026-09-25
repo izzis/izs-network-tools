@@ -46,11 +46,17 @@ object WifiAnalyzerRunner {
     const val SORT_SSID = "ssid"
     const val SORT_CHANNEL = "channel"
 
+    /** AP row count modes for [Filters.rows] (List display only). */
+    const val ROWS_2 = 2
+    const val ROWS_3 = 3
+
     /**
      * Query + multi-select chips + single-select channel/display/sort.
      * [band] / [security]: empty set = nothing selected (match nothing);
      * default = every option. Within a chip group items are OR-ed; groups AND.
      * [sort] only orders the List display; Channel display ignores it.
+     * [rows] = AP row count: [ROWS_2] compact, [ROWS_3] adds the
+     * vendor/standard/(gone) line (persisted; Channel display ignores it).
      */
     data class Filters(
         val query: String = "",   // SSID or BSSID substring, case-insensitive
@@ -59,6 +65,7 @@ object WifiAnalyzerRunner {
         val security: Set<String> = setOf("WPA3", "WPA2", "WPA", "WEP", "open"),
         val display: String = DISPLAY_LIST, // "list" | "channel"
         val sort: String = SORT_RSSI,       // "rssi" | "ssid" | "channel"
+        val rows: Int = ROWS_2,             // 2 | 3 (List display)
         /** ISO-3166 alpha-2; drives which primary channels are legal to show. */
         val country: String = "ID"
     )
@@ -260,9 +267,12 @@ object WifiAnalyzerRunner {
     fun apLineRssi(line: String): Int =
         RSSI_IN_LINE.find(apLineBody(line))?.groupValues?.get(1)?.toIntOrNull() ?: Int.MIN_VALUE
 
-    /** Parsed primary channel (`ch  6`) of a formatted AP line. */
-    fun apLineChannel(line: String): Int =
-        CH_IN_LINE.find(apLineBody(line))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    /** Parsed primary channel (`ch  6`) of a formatted AP line.
+     *  Read from line 2 only — line 3 may contain vendor names. */
+    fun apLineChannel(line: String): Int {
+        val macLine = apLineBody(line).substringAfter('\n', "").substringBefore('\n')
+        return CH_IN_LINE.find(macLine)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    }
 
     /** LIVE key (BSSID) of an AP line, or empty. */
     fun apLineBssid(line: String): String =
@@ -320,15 +330,33 @@ object WifiAnalyzerRunner {
         String.format(Locale.US, "~%.1fm", calculateDistance(frequencyMhz, rssi))
 
     /**
-     * Two-line console row (monospace, no indent):
+     * Console row (monospace, no indent). Two layouts:
+     *
+     * [ROWS_2]:
      *   line 1: SSID · signal stair · dBm · ~distance · `(gone)`/`(filter)`
      *   line 2: MAC · channel · bandwidth · band · security · 802.11
+     *
+     * [ROWS_3]:
+     *   line 1: SSID · signal stair · dBm · ~distance
+     *   line 2: MAC · channel · bandwidth · band · security
+     *   line 3: vendor(OUI, 19 cols) · 802.11xx (WiFi N) (18 cols) · markers
+     *
      * Hidden SSIDs show `(hidden)` on line 1 — the MAC on line 2 still
      * uniquely identifies the AP. Connected is a UI color (green), not a marker.
-     * Markers ride on line 1; standard is omitted when unknown
-     * (pre-API 30 / WIFI_STANDARD_UNKNOWN).
+     * In ROWS_3 the line-3 label starts at line 2's `ch` column (MAC 17 +
+     * 2 spaces = 19) — the monospace font keeps every character the same
+     * width, so column counting is pixel-accurate. Line 3 is omitted entirely
+     * when vendor, standard and markers are all empty (falls back to a
+     * 2-line block). Standard is omitted when unknown (pre-API 30 /
+     * WIFI_STANDARD_UNKNOWN).
      */
-    fun formatAp(ap: ApInfo, gone: Boolean = false, filter: Boolean = false): String {
+    fun formatAp(
+        ap: ApInfo,
+        gone: Boolean = false,
+        filter: Boolean = false,
+        rows: Int = ROWS_2,
+        vendor: String = ""
+    ): String {
         val name = ap.ssid.ifEmpty { "(hidden)" }.take(20)
         val line1 = buildString {
             append(name.padEnd(20))
@@ -337,18 +365,48 @@ object WifiAnalyzerRunner {
             append(ap.rssi.toString().padStart(4))
             append(" dBm  ")
             append(formatDistance(ap.frequency, ap.rssi).padStart(7)) // ~999.9m max common
-            if (gone) append("  (gone)")
-            if (filter) append("  (filter)")
+            if (rows == ROWS_2) {
+                if (gone) append("  (gone)")
+                if (filter) append("  (filter)")
+            }
         }
         // Fixed columns so rows stay aligned whether or not width/standard are long:
-        //   MAC(17)  ch(5)  width(7)  band(6)  sec(4)  [standard]
+        //   MAC(17)  ch(5)  width(7)  band(6)  sec(4)  [standard] (ROWS_2 only)
         val ch = "ch${channelOf(ap.frequency).toString().padStart(3)}"
         val width = "${ap.widthMhz}MHz".padEnd(7)
         val band = "${bandOf(ap.frequency)}G".padEnd(6)
         val sec = ap.security.padEnd(4)
-        val std = if (ap.standard.isEmpty()) "" else "  ${ap.standard}"
-        val line2 = "${ap.bssid}  $ch  $width$band$sec$std"
-        return "$line1\n$line2"
+        val line2 = buildString {
+            append(ap.bssid).append("  ").append(ch).append("  ")
+            append(width).append(band).append(sec)
+            if (rows == ROWS_2 && ap.standard.isNotEmpty()) append("  ${ap.standard}")
+        }
+        if (rows == ROWS_2) return "$line1\n$line2"
+        // ROWS_3: vendor + standard-with-generation + markers share line 3.
+        val label = standardLabel(ap)
+        val markers = buildString {
+            if (gone) append("  (gone)")
+            if (filter) append("  (filter)")
+        }
+        if (vendor.isEmpty() && label.isEmpty() && markers.isEmpty()) return "$line1\n$line2"
+        // Vendor field is 19 cols so the label starts exactly at line 2's
+        // `ch` column (MAC 17 + 2 spaces), keeping the columns aligned.
+        val line3 = vendor.take(19).padEnd(19) + label.padEnd(18) + markers
+        return "$line1\n$line2\n$line3"
+    }
+
+    /**
+     * Line-3 standard with Wi-Fi generation, e.g. `802.11ac (WiFi 5)` and
+     * `802.11ax (WiFi 6E)` on 6 GHz. Empty when the standard is unknown;
+     * names without a generation (802.11ad, 802.11a/b/g) pass through.
+     */
+    fun standardLabel(ap: ApInfo): String = when (ap.standard) {
+        "802.11n" -> "802.11n (WiFi 4)"
+        "802.11ac" -> "802.11ac (WiFi 5)"
+        "802.11ax" ->
+            if (bandOf(ap.frequency) == "6") "802.11ax (WiFi 6E)" else "802.11ax (WiFi 6)"
+        "802.11be" -> "802.11be (WiFi 7)"
+        else -> ap.standard
     }
 
     /**
@@ -529,19 +587,32 @@ object WifiAnalyzerRunner {
                     // APs that vanished from the radio entirely → one (gone)
                     // note, auto-removed on the next cycle.
                     for (bssid in shown.filter { it !in rawNow }) {
-                        rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it, gone = true)}") }
+                        rawCache[bssid]?.let {
+                            emit(
+                                "${GlobalpingRunner.LIVE}$bssid\n" +
+                                    formatAp(it, gone = true, rows = f.rows, vendor = OuiDb.vendorOf(it.bssid))
+                            )
+                        }
                         shown.remove(bssid)
                         rawCache.remove(bssid)
                         pendingRemoval.add(bssid)
                     }
                     // APs still on air but knocked out by the current filter.
                     for (bssid in shown.filter { b -> matching.none { it.bssid == b } }) {
-                        rawCache[bssid]?.let { emit("${GlobalpingRunner.LIVE}$bssid\n${formatAp(it, filter = true)}") }
+                        rawCache[bssid]?.let {
+                            emit(
+                                "${GlobalpingRunner.LIVE}$bssid\n" +
+                                    formatAp(it, filter = true, rows = f.rows, vendor = OuiDb.vendorOf(it.bssid))
+                            )
+                        }
                         shown.remove(bssid)
                     }
                     // Live rows (replace in place on later cycles).
                     for (ap in matching) {
-                        emit("${GlobalpingRunner.LIVE}${ap.bssid}\n${formatAp(ap)}")
+                        emit(
+                            "${GlobalpingRunner.LIVE}${ap.bssid}\n" +
+                                formatAp(ap, rows = f.rows, vendor = OuiDb.vendorOf(ap.bssid))
+                        )
                         shown.add(ap.bssid)
                     }
                 }

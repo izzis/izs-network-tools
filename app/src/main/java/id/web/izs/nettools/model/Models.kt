@@ -30,6 +30,18 @@ fun List<SavedHost>.sortedFor(sort: SavedSort): List<SavedHost> = when (sort) {
     SavedSort.RECENT_USE -> sortedByDescending { it.lastUsed }
 }
 
+/** Global-vs-Local engine choice per tool (Ping/Trace/Ports) plus the shared
+ *  Globalping options, stored as one JSON blob under `global_prefs`.
+ *  Fresh install = Local / 10 probes / worldwide. */
+@Serializable
+data class GlobalPrefs(
+    val ping: Boolean = false,
+    val trace: Boolean = false,
+    val ports: Boolean = false,
+    val probes: Int = 10,
+    val country: String = ""
+)
+
 @Serializable
 data class AppSettings(
     val dnsServer: String = "1.1.1.1",
