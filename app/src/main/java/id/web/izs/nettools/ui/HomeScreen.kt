@@ -12,16 +12,22 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +49,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -62,7 +69,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
@@ -77,6 +84,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,6 +93,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -331,7 +340,8 @@ private fun OutputLine(
 fun HomeScreen(
     vm: NetToolsViewModel,
     onOpenSettings: () -> Unit,
-    onOpenHosts: () -> Unit
+    onOpenHosts: () -> Unit,
+    onOpenEditUi: () -> Unit
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
@@ -488,10 +498,18 @@ fun HomeScreen(
         wifiCountdown = 0
     }
 
-    Scaffold(
-        topBar = {
+    // Top bar docks at the top edge (default) or the bottom edge (Edit UI).
+    // Insets follow the dock: top = status bar (default), bottom = nav bar +
+    // keyboard, so the bottom dock never reserves status-bar height or sits
+    // under the gesture pill (Scaffold leaves insets to the bar itself).
+    val topBar: @Composable () -> Unit = {
             TopAppBar(
                 title = { Text("izs NetTools") },
+                windowInsets = if (state.settings.topBarBottom) {
+                    WindowInsets.navigationBars.union(WindowInsets.ime)
+                } else {
+                    TopAppBarDefaults.windowInsets
+                },
                 actions = {
                     // Hide collapses the tool grid (taller terminal). When
                     // collapsed, this button shows the active tool and re-opens
@@ -553,8 +571,29 @@ fun HomeScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snack) }
+    }
+    // Keyboard open with the target box docked last: lift the content above the
+    // IME so the field never hides under it. Skipped when the bar is docked at
+    // the bottom — its own windowInsets already grow the bar by the keyboard,
+    // and padding here too would shrink the content twice and push the target
+    // box out of view.
+    val targetLast = state.settings.uiSections.lastOrNull() == "target"
+    Scaffold(
+        topBar = { if (!state.settings.topBarBottom) topBar() },
+        bottomBar = { if (state.settings.topBarBottom) topBar() },
+        snackbarHost = { SnackbarHost(snack) },
+        floatingActionButton = {
+            // Edit UI's View button arms this: tap to jump straight back to
+            // the editor, then it clears until View is pressed again.
+            if (state.editUiFab) {
+                FloatingActionButton(onClick = {
+                    vm.setEditUiFab(false)
+                    onOpenEditUi()
+                }) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit UI")
+                }
+            }
+        }
     ) { pad ->
         // Box hosts the saved-list overlay so it floats over the tool grid
         // instead of pushing it down (layout stays put on open/close).
@@ -565,6 +604,7 @@ fun HomeScreen(
                 // Tighter on top only: less air between TopAppBar and the
                 // target field; sides/bottom keep 8.dp with the column gap.
                 .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
+                .then(if (targetLast && !state.settings.topBarBottom) Modifier.imePadding() else Modifier)
         ) {
         Column(
             modifier = Modifier
@@ -580,6 +620,17 @@ fun HomeScreen(
                 },
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // --- Sections (Edit UI order) --------------------------------
+            // Each lambda holds the exact pre-refactor block; only the
+            // sequence below follows the user's order (Settings > Edit UI).
+            val targetSection: @Composable ColumnScope.() -> Unit = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The dropdown overflows this Box; zIndex lifts the whole
+                    // section over whatever follows it in the order.
+                    .zIndex(1f)
+            ) {
             // --- Target bar: single unified search bar ---
             // My IP / Neighbor ignore the target: show the label and hide
             // any value left over from another tool (kept in state, restored
@@ -646,415 +697,10 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().height(56.dp)
             )
 
-            // --- Tool selector: exactly 2 rows, divider-separated, no boxes.
-            // Tap = select (+ auto-run when enabled, except IP Scan and Loop).
-            // Long-press a server tool = change its server; hold Loop = pick mode.
-            // Hidden via top-bar Hide → more terminal height; button shows tool name.
-            var serverTool by remember { mutableStateOf<Tool?>(null) }
-            var scopeTool by remember { mutableStateOf<Tool?>(null) }
-            var loopModeTool by remember { mutableStateOf<Tool?>(null) }
-            if (!state.hideToolGrid) {
-                ToolSelector(
-                    selected = state.tool,
-                    enabled = !state.running,
-                    settings = state.settings,
-                    rows = state.settings.toolGridRows,
-                    extraSub = { t ->
-                        when (t) {
-                            Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
-                            Tool.TRACE -> if (state.traceGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
-                            Tool.PORTS -> if (state.portsGlobal) "Global" else "Local"
-                            Tool.LOOP -> state.loopMode.sub
-                            // WiFi Analyzer: no gray subtitle — the filter tabs
-                            // below the hint carry that state more clearly.
-                            Tool.WIFIANALYZER -> null
-                            else -> null
-                        }
-                    },
-                    onSelect = { if (state.settings.autoRunOnTool) vm.selectAndRun(it) else vm.setTool(it) },
-                    onLongPress = { t ->
-                        when {
-                            toolServerSlot(t, state.settings) != null -> serverTool = t
-                            t == Tool.PING || t == Tool.TRACE || t == Tool.PORTS -> scopeTool = t
-                            t == Tool.LOOP -> loopModeTool = t
-                        }
-                    }
-                )
-            }
-            serverTool?.let { t ->
-                toolServerSlot(t, state.settings)?.let { slot ->
-                    ServerPickerDialog(
-                        tool = t,
-                        slot = slot,
-                        onSave = { vm.setToolServer(t, it) },
-                        onDismiss = { serverTool = null }
-                    )
-                }
-            }
-            scopeTool?.let { t ->
-                val isGlobal = when (t) {
-                    Tool.PING -> state.pingGlobal
-                    Tool.TRACE -> state.traceGlobal
-                    else -> state.portsGlobal
-                }
-                ScopePickerDialog(
-                    tool = t,
-                    isGlobal = isGlobal,
-                    probes = state.globalProbes,
-                    country = state.globalCountry,
-                    simple = t == Tool.PORTS,
-                    portList = if (t == Tool.PORTS) state.settings.portList else null,
-                    onSave = { g, n, c, ports ->
-                        when (t) {
-                            Tool.PING -> vm.setPingGlobal(g)
-                            Tool.TRACE -> vm.setTraceGlobal(g)
-                            else -> vm.setPortsGlobal(g)
-                        }
-                        vm.setGlobalProbes(n)
-                        vm.setGlobalCountry(c)
-                        if (ports != null && ports != state.settings.portList) vm.setPortList(ports)
-                    },
-                    onDismiss = { scopeTool = null }
-                )
-            }
-            loopModeTool?.let {
-                LoopModePickerDialog(
-                    current = state.loopMode,
-                    onSave = { vm.setLoopMode(it) },
-                    onDismiss = { loopModeTool = null }
-                )
-            }
-            // --- Contextual options ---
-            if (state.tool == Tool.DIG) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Record type", style = MaterialTheme.typography.labelLarge)
-                            Text(
-                                "DNS server: ${state.settings.dnsServer} - change in Settings",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
-                            )
-                        }
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            DnsRunner.types.forEach { ty ->
-                                FilterChip(
-                                    selected = state.digType == ty,
-                                    onClick = { vm.setDigType(ty) },
-                                    label = { Text(ty) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (state.tool == Tool.TRACE) {
-                Text(
-                    (if (state.traceGlobal) "Globalping x${state.globalProbes} - hold Trace to change"
-                    else "Max ${state.settings.maxHops} hops (Settings) - hold Trace for Global"),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.LOOP) {
-                Text(
-                    "Detects L2 broadcast storms and L3 routing loops - hold Loop to pick L2/L3/Both",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                // Verdict banners: pop in when the Loop run finishes (or stops
-                // early on a proven L3 loop). Clean runs stay console-only.
-                state.stormVerdict?.let { StormVerdictBanner(it) }
-                state.loopVerdict?.let { LoopVerdictBanner(it) }
-            }
-            if (state.tool == Tool.CERT) {
-                Text(
-                    "Port 443 - type host:port for another port",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.MYIP) {
-                Text(
-                    "This device's public IP - target field ignored",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.NEIGHBOR) {
-                Text(
-                    "LAN discovery: MNDP + mDNS + SSDP - target ignored",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.IPINFO) {
-                Text(
-                    "Lookup any IP or domain - server from Settings",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.PORTS) {
-                Text(
-                    "Port list from Settings - or host:port for one port",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.HEADERS) {
-                Text(
-                    "URL or host (path included, https assumed)",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            if (state.tool == Tool.SWEEP) {
-                Text(
-                    "Ping scan - range autofills above (e.g. 10.0.0.0/24)",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (state.tool == Tool.WIFIANALYZER) {
-                Text(
-                    "Live APs every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s - type SSID/MAC above to filter",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                // Filters as a Settings-style 2-row block: dimension tabs on
-                // top, values for the active dimension below — fixed height
-                // no matter how many filter kinds exist. Display (rightmost)
-                // = List/Channel + "Sort:" + RSSI/SSID/Ch + Rows: 2/3 in one
-                // horizontally scrollable row — Rows sits at the far right, so
-                // on narrow screens it stays out of view until scrolled
-                // (rarely changed); Channel always sorts by channel no.
-                // SSIDs stay free text in the target bar (names are too
-                // random to enumerate).
-                var wifiFilterDim by remember { mutableStateOf(0) }
-                PrimaryTabRow(selectedTabIndex = wifiFilterDim) {
-                    listOf("Band", "Channel", "Security", "Display").forEachIndexed { i, name ->
-                        Tab(
-                            selected = wifiFilterDim == i,
-                            onClick = { wifiFilterDim = i },
-                            modifier = Modifier.height(36.dp),
-                            text = {
-                                Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                            }
-                        )
-                    }
-                }
-                when (wifiFilterDim) {
-                    0 -> WifiMultiOptionRow(
-                        options = listOf("2.4" to "2.4", "5" to "5", "6" to "6"),
-                        selected = state.wifiBand,
-                        onToggle = vm::toggleWifiBand,
-                        onSelectAll = vm::selectAllWifiBands
-                    )
-                    1 -> {
-                        val chans = listOf(-1) + state.wifiChannels
-                        WifiOptionRow(
-                            options = chans.map { c -> c to (if (c == -1) "All" else "$c") },
-                            selected = state.wifiChannel,
-                            onSelect = vm::setWifiChannel
-                        )
-                    }
-                    2 -> WifiMultiOptionRow(
-                        options = listOf(
-                            "WPA3" to "WPA3", "WPA2" to "WPA2",
-                            "WPA" to "WPA", "WEP" to "WEP", "open" to "open"
-                        ),
-                        selected = state.wifiSecurity,
-                        onToggle = vm::toggleWifiSecurity
-                    )
-                    else -> Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                    ) {
-                        listOf(
-                            WifiAnalyzerRunner.DISPLAY_LIST to "List",
-                            WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
-                        ).forEach { (value, label) ->
-                            FilterChip(
-                                selected = value == state.wifiDisplay,
-                                onClick = { vm.setWifiDisplay(value) },
-                                label = {
-                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                },
-                                modifier = Modifier.height(28.dp)
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Sort:",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        listOf(
-                            WifiAnalyzerRunner.SORT_RSSI to "RSSI",
-                            WifiAnalyzerRunner.SORT_SSID to "SSID",
-                            WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
-                        ).forEach { (value, label) ->
-                            FilterChip(
-                                selected = value == state.wifiSort,
-                                onClick = { vm.setWifiSort(value) },
-                                label = {
-                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                },
-                                modifier = Modifier.height(28.dp)
-                            )
-                        }
-                        // Rows last = far right of the scroll content: rarely
-                        // changed, so it stays off-screen on narrow displays.
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Rows:",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        listOf(
-                            WifiAnalyzerRunner.ROWS_2 to "2",
-                            WifiAnalyzerRunner.ROWS_3 to "3"
-                        ).forEach { (value, label) ->
-                            FilterChip(
-                                selected = value == state.wifiRows,
-                                onClick = { vm.setWifiRows(value) },
-                                label = {
-                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                },
-                                modifier = Modifier.height(28.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // --- Output console: dark terminal panel ---
-            Card(
-                colors = CardDefaults.cardColors(containerColor = term.bg),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            ) {
-                    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // No static "Output" label (obvious enough): dynamic Run/Stop instead.
-                            TextButton(onClick = { if (state.running) vm.stop() else runAction() }) {
-                                Icon(
-                                    if (state.running) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = if (state.running) term.green else term.text
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    if (state.running) "Stop" else "Run",
-                                    color = if (state.running) term.green else term.text
-                                )
-                            }
-                            // Scan/Loop progress, numbers only (e.g. 25/254), plus
-                            // Global progress (e.g. 3/10 probes) while a global run is live.
-                            val isGlobalRun = (state.tool == Tool.PING && state.pingGlobal) ||
-                                (state.tool == Tool.TRACE && state.traceGlobal)
-                            if (state.tool == Tool.SWEEP || state.tool == Tool.LOOP || (isGlobalRun && state.running)) {
-                                state.progress?.let {
-                                    val nums = Regex("""\d+/\d+""").find(it)?.value ?: it
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        nums,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = term.green,
-                                        maxLines = 1,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-                                }
-                            }
-                            // WiFi Analyzer: spinner while a scan + cache-grace
-                            // window is open (first cycle or manual "next" tap),
-                            // countdown to the next cycle once rows land.
-                            // Intrinsic width only — a weight slot here clips
-                            // "next 30s" down to "next 9s"-length space.
-                            // Tap countdown = refresh now (wakes the cycle early).
-                            if (state.tool == Tool.WIFIANALYZER && state.running) {
-                                Spacer(Modifier.width(8.dp))
-                                if (state.wifiScanning) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(14.dp),
-                                        strokeWidth = 2.dp,
-                                        color = term.green
-                                    )
-                                } else if (wifiCountdown > 0) {
-                                    Text(
-                                        "next ${wifiCountdown}s",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = term.green,
-                                        maxLines = 1,
-                                        modifier = Modifier
-                                            .clickable { vm.refreshWifiNow() }
-                                            .padding(horizontal = 2.dp)
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.weight(1f))
-                            // Ports only, only after a finished scan: manual
-                            // re-sort with open lines above closed ones.
-                            if (state.tool == Tool.PORTS && !state.running &&
-                                state.lines.any { l -> l.startsWith("OPEN ") || l.startsWith("closed ") }
-                            ) {
-                                TextButton(onClick = { vm.sortOutputOpenFirst() }) {
-                                    Icon(
-                                        Icons.Filled.Sort,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = term.text
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Sort", color = term.text)
-                                }
-                            }
-                            IconButton(onClick = { vm.bumpFont(-1f) }) {
-                                Icon(Icons.Filled.TextDecrease, contentDescription = "Smaller text", tint = term.text)
-                            }
-                            IconButton(onClick = { vm.bumpFont(1f) }) {
-                                Icon(Icons.Filled.TextIncrease, contentDescription = "Bigger text", tint = term.text)
-                            }
-                            TextButton(onClick = { vm.clearOutput() }) {
-                                Icon(
-                                    Icons.Filled.DeleteSweep,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = term.text
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text("Clear", color = term.text)
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        SelectionContainer(modifier = Modifier.fillMaxSize()) {
-                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                items(displayKeyed, key = { it.first }) { (_, raw) ->
-                                    // WiFi AP blocks get bottom margin so each
-                                    // SSID+MAC pair is a distinct visual group.
-                                    val shown = GlobalpingRunner.displayOf(raw)
-                                    val isApBlock = shown.split('\n').let { ls ->
-                                        ls.size >= 2 && wifiMacLine.matches(ls[1].trim())
-                                    }
-                                    OutputLine(
-                                        line = raw,
-                                        colored = state.settings.coloredOutput,
-                                        p = term,
-                                        fontSize = state.settings.outputFontSp.sp,
-                                        bottomSpacer = isApBlock,
-                                        wifiConnBssid = state.wifiConnBssid
-                                    )
-                                }
-                            }
-                        }
-                    }
-            }
-        }
-
-            // --- Saved + recent dropdown: floats over the tool grid ---
-            // Positioned under the 56.dp target field (+ 8.dp column gap);
-            // zIndex keeps it above the Column below it in the Box.
+            // --- Saved + recent dropdown: floats under the 56.dp field ---
+            // Anchored to the field itself (+ 8.dp column gap), so it lands
+            // right under it at any section order; the wrapper Box's zIndex
+            // keeps it above the sections that follow.
             if (state.dropExpanded) {
                 Card(
                     modifier = Modifier
@@ -1147,6 +793,474 @@ fun HomeScreen(
                     }
                 }
             }
+            }
+            }
+            val toolsSection: @Composable ColumnScope.() -> Unit = {
+            // --- Tool selector: exactly 2 rows, divider-separated, no boxes.
+            // Tap = select (+ auto-run when enabled, except IP Scan and Loop).
+            // Long-press a server tool = change its server; hold Loop = pick mode.
+            // Hidden via top-bar Hide → more terminal height; button shows tool name.
+            var serverTool by remember { mutableStateOf<Tool?>(null) }
+            var scopeTool by remember { mutableStateOf<Tool?>(null) }
+            var loopModeTool by remember { mutableStateOf<Tool?>(null) }
+            // --- Tool descriptions (hint texts): Edit UI picks top/bottom/hide.
+            val toolHints: @Composable ColumnScope.() -> Unit = {
+            if (state.tool == Tool.TRACE) {
+                Text(
+                    (if (state.traceGlobal) "Globalping x${state.globalProbes} - hold Trace to change"
+                    else "Max ${state.settings.maxHops} hops (Settings) - hold Trace for Global"),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.LOOP) {
+                Text(
+                    "Detects L2 broadcast storms and L3 routing loops - hold Loop to pick L2/L3/Both",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                // Verdict banners: pop in when the Loop run finishes (or stops
+                // early on a proven L3 loop). Clean runs stay console-only.
+                state.stormVerdict?.let { StormVerdictBanner(it) }
+                state.loopVerdict?.let { LoopVerdictBanner(it) }
+            }
+            if (state.tool == Tool.CERT) {
+                Text(
+                    "Port 443 - type host:port for another port",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.MYIP) {
+                Text(
+                    "This device's public IP - target field ignored",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.NEIGHBOR) {
+                Text(
+                    "LAN discovery: MNDP + mDNS + SSDP - target ignored",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.IPINFO) {
+                Text(
+                    "Lookup any IP or domain - server from Settings",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.PORTS) {
+                Text(
+                    "Port list from Settings - or host:port for one port",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.HEADERS) {
+                Text(
+                    "URL or host (path included, https assumed)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.SWEEP) {
+                Text(
+                    "Ping scan - range autofills above (e.g. 10.0.0.0/24)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.WIFIANALYZER) {
+                Text(
+                    "Live APs every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s - type SSID/MAC above to filter",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            }
+            val toolExtra: @Composable ColumnScope.() -> Unit = {
+            if (state.tool == Tool.DIG) {
+                val digHeader: @Composable () -> Unit = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Record type", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "DNS server: ${state.settings.dnsServer} - change in Settings",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+                val digBody: @Composable () -> Unit = {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        DnsRunner.types.forEach { ty ->
+                            FilterChip(
+                                selected = state.digType == ty,
+                                onClick = { vm.setDigType(ty) },
+                                label = { Text(ty) }
+                            )
+                        }
+                    }
+                }
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (state.settings.toolExtraHeader == "top") {
+                            digHeader()
+                            digBody()
+                        } else {
+                            digBody()
+                            digHeader()
+                        }
+                    }
+                }
+            }
+            if (state.tool == Tool.WIFIANALYZER) {
+                // Filters as a Settings-style 2-row block: dimension tabs on
+                // top, values for the active dimension below — fixed height
+                // no matter how many filter kinds exist. Display (rightmost)
+                // = List/Channel + "Sort:" + RSSI/SSID/Ch + Rows: 2/3 in one
+                // horizontally scrollable row — Rows sits at the far right, so
+                // on narrow screens it stays out of view until scrolled
+                // (rarely changed); Channel always sorts by channel no.
+                // SSIDs stay free text in the target bar (names are too
+                // random to enumerate).
+                var wifiFilterDim by remember { mutableStateOf(0) }
+                val wifiHeader: @Composable () -> Unit = {
+                PrimaryTabRow(
+                    selectedTabIndex = wifiFilterDim,
+                    containerColor = CardDefaults.cardColors().containerColor
+                ) {
+                    listOf("Band", "Channel", "Security", "Display").forEachIndexed { i, name ->
+                        Tab(
+                            selected = wifiFilterDim == i,
+                            onClick = { wifiFilterDim = i },
+                            modifier = Modifier.height(36.dp),
+                            text = {
+                                Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            }
+                        )
+                    }
+                }
+                }
+                val wifiBody: @Composable () -> Unit = {
+                when (wifiFilterDim) {
+                    0 -> WifiMultiOptionRow(
+                        options = listOf("2.4" to "2.4 GHz", "5" to "5 GHz", "6" to "6 GHz"),
+                        selected = state.wifiBand,
+                        onToggle = vm::toggleWifiBand,
+                        onSelectAll = vm::selectAllWifiBands
+                    )
+                    1 -> {
+                        val chans = listOf(-1) + state.wifiChannels
+                        WifiOptionRow(
+                            options = chans.map { c -> c to (if (c == -1) "All" else "$c") },
+                            selected = state.wifiChannel,
+                            onSelect = vm::setWifiChannel
+                        )
+                    }
+                    2 -> WifiMultiOptionRow(
+                        options = listOf(
+                            "WPA3" to "WPA3", "WPA2" to "WPA2",
+                            "WPA" to "WPA", "WEP" to "WEP", "open" to "open"
+                        ),
+                        selected = state.wifiSecurity,
+                        onToggle = vm::toggleWifiSecurity
+                    )
+                    else -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        listOf(
+                            WifiAnalyzerRunner.DISPLAY_LIST to "List",
+                            WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiDisplay,
+                                onClick = { vm.setWifiDisplay(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Sort:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        listOf(
+                            WifiAnalyzerRunner.SORT_RSSI to "RSSI",
+                            WifiAnalyzerRunner.SORT_SSID to "SSID",
+                            WifiAnalyzerRunner.SORT_CHANNEL to "Ch"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiSort,
+                                onClick = { vm.setWifiSort(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                        // Rows last = far right of the scroll content: rarely
+                        // changed, so it stays off-screen on narrow displays.
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Rows:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        listOf(
+                            WifiAnalyzerRunner.ROWS_2 to "2",
+                            WifiAnalyzerRunner.ROWS_3 to "3"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = value == state.wifiRows,
+                                onClick = { vm.setWifiRows(value) },
+                                label = {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                },
+                                modifier = Modifier.height(28.dp)
+                            )
+                        }
+                    }
+                }
+                }
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (state.settings.toolExtraHeader == "top") {
+                            wifiHeader()
+                            wifiBody()
+                        } else {
+                            wifiBody()
+                            wifiHeader()
+                        }
+                    }
+                }
+            }
+            }
+            if (state.settings.toolExtraPos == "top") toolExtra()
+            if (state.settings.toolDescPos == "top") toolHints()
+            if (!state.hideToolGrid) {
+                ToolSelector(
+                    selected = state.tool,
+                    enabled = !state.running,
+                    settings = state.settings,
+                    rows = state.settings.toolGridRows,
+                    extraSub = { t ->
+                        when (t) {
+                            Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
+                            Tool.TRACE -> if (state.traceGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
+                            Tool.PORTS -> if (state.portsGlobal) "Global" else "Local"
+                            Tool.LOOP -> state.loopMode.sub
+                            // WiFi Analyzer: no gray subtitle — the filter tabs
+                            // below the hint carry that state more clearly.
+                            Tool.WIFIANALYZER -> null
+                            else -> null
+                        }
+                    },
+                    onSelect = { if (state.settings.autoRunOnTool) vm.selectAndRun(it) else vm.setTool(it) },
+                    onLongPress = { t ->
+                        when {
+                            toolServerSlot(t, state.settings) != null -> serverTool = t
+                            t == Tool.PING || t == Tool.TRACE || t == Tool.PORTS -> scopeTool = t
+                            t == Tool.LOOP -> loopModeTool = t
+                        }
+                    }
+                )
+            }
+            serverTool?.let { t ->
+                toolServerSlot(t, state.settings)?.let { slot ->
+                    ServerPickerDialog(
+                        tool = t,
+                        slot = slot,
+                        onSave = { vm.setToolServer(t, it) },
+                        onDismiss = { serverTool = null }
+                    )
+                }
+            }
+            scopeTool?.let { t ->
+                val isGlobal = when (t) {
+                    Tool.PING -> state.pingGlobal
+                    Tool.TRACE -> state.traceGlobal
+                    else -> state.portsGlobal
+                }
+                ScopePickerDialog(
+                    tool = t,
+                    isGlobal = isGlobal,
+                    probes = state.globalProbes,
+                    country = state.globalCountry,
+                    simple = t == Tool.PORTS,
+                    portList = if (t == Tool.PORTS) state.settings.portList else null,
+                    onSave = { g, n, c, ports ->
+                        when (t) {
+                            Tool.PING -> vm.setPingGlobal(g)
+                            Tool.TRACE -> vm.setTraceGlobal(g)
+                            else -> vm.setPortsGlobal(g)
+                        }
+                        vm.setGlobalProbes(n)
+                        vm.setGlobalCountry(c)
+                        if (ports != null && ports != state.settings.portList) vm.setPortList(ports)
+                    },
+                    onDismiss = { scopeTool = null }
+                )
+            }
+            loopModeTool?.let {
+                LoopModePickerDialog(
+                    current = state.loopMode,
+                    onSave = { vm.setLoopMode(it) },
+                    onDismiss = { loopModeTool = null }
+                )
+            }
+            if (state.settings.toolExtraPos == "bottom") toolExtra()
+            if (state.settings.toolDescPos == "bottom") toolHints()
+            }
+            val terminalSection: @Composable ColumnScope.() -> Unit = {
+            // --- Output console: dark terminal panel ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = term.bg),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
+                    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                    // Terminal toolbar: Run/Stop · progress · font · Clear.
+                    // Edit UI picks above or below the output — same row.
+                    val termToolbar: @Composable () -> Unit = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // No static "Output" label (obvious enough): dynamic Run/Stop instead.
+                            TextButton(onClick = { if (state.running) vm.stop() else runAction() }) {
+                                Icon(
+                                    if (state.running) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (state.running) term.green else term.text
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (state.running) "Stop" else "Run",
+                                    color = if (state.running) term.green else term.text
+                                )
+                            }
+                            // Scan/Loop progress, numbers only (e.g. 25/254), plus
+                            // Global progress (e.g. 3/10 probes) while a global run is live.
+                            val isGlobalRun = (state.tool == Tool.PING && state.pingGlobal) ||
+                                (state.tool == Tool.TRACE && state.traceGlobal)
+                            if (state.tool == Tool.SWEEP || state.tool == Tool.LOOP || (isGlobalRun && state.running)) {
+                                state.progress?.let {
+                                    val nums = Regex("""\d+/\d+""").find(it)?.value ?: it
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        nums,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = term.green,
+                                        maxLines = 1,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                }
+                            }
+                            // WiFi Analyzer: spinner while a scan + cache-grace
+                            // window is open (first cycle or manual "next" tap),
+                            // countdown to the next cycle once rows land.
+                            // Intrinsic width only — a weight slot here clips
+                            // "next 30s" down to "next 9s"-length space.
+                            // Tap countdown = refresh now (wakes the cycle early).
+                            if (state.tool == Tool.WIFIANALYZER && state.running) {
+                                Spacer(Modifier.width(8.dp))
+                                if (state.wifiScanning) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = term.green
+                                    )
+                                } else if (wifiCountdown > 0) {
+                                    Text(
+                                        "next ${wifiCountdown}s",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = term.green,
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .clickable { vm.refreshWifiNow() }
+                                            .padding(horizontal = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            // Ports only, only after a finished scan: manual
+                            // re-sort with open lines above closed ones.
+                            if (state.tool == Tool.PORTS && !state.running &&
+                                state.lines.any { l -> l.startsWith("OPEN ") || l.startsWith("closed ") }
+                            ) {
+                                TextButton(onClick = { vm.sortOutputOpenFirst() }) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Sort,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = term.text
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Sort", color = term.text)
+                                }
+                            }
+                            IconButton(onClick = { vm.bumpFont(-1f) }) {
+                                Icon(Icons.Filled.TextDecrease, contentDescription = "Smaller text", tint = term.text)
+                            }
+                            IconButton(onClick = { vm.bumpFont(1f) }) {
+                                Icon(Icons.Filled.TextIncrease, contentDescription = "Bigger text", tint = term.text)
+                            }
+                            TextButton(onClick = { vm.clearOutput() }) {
+                                Icon(
+                                    Icons.Filled.DeleteSweep,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = term.text
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("Clear", color = term.text)
+                            }
+                        }
+                        }
+                        if (state.settings.runRowTop) {
+                            termToolbar()
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        SelectionContainer(modifier = Modifier.weight(1f)) {
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                                items(displayKeyed, key = { it.first }) { (_, raw) ->
+                                    // WiFi AP blocks get bottom margin so each
+                                    // SSID+MAC pair is a distinct visual group.
+                                    val shown = GlobalpingRunner.displayOf(raw)
+                                    val isApBlock = shown.split('\n').let { ls ->
+                                        ls.size >= 2 && wifiMacLine.matches(ls[1].trim())
+                                    }
+                                    OutputLine(
+                                        line = raw,
+                                        colored = state.settings.coloredOutput,
+                                        p = term,
+                                        fontSize = state.settings.outputFontSp.sp,
+                                        bottomSpacer = isApBlock,
+                                        wifiConnBssid = state.wifiConnBssid
+                                    )
+                                }
+                            }
+                        }
+                        if (!state.settings.runRowTop) {
+                            Spacer(Modifier.height(4.dp))
+                            termToolbar()
+                        }
+                    }
+            }
+            }
+            state.settings.uiSections.forEach { id ->
+                when (id) {
+                    "target" -> targetSection()
+                    "tools" -> toolsSection()
+                    "terminal" -> terminalSection()
+                    else -> {}
+                }
+            }
+        }
+
         }
     }
 }

@@ -83,8 +83,57 @@ data class AppSettings(
      *  of 5 tools (one visible row, more terminal height). */
     val toolGridRows: Int = 2,
     /** Top-bar Hide collapsed the tool grid — restored on the next launch. */
-    val hideToolGrid: Boolean = false
+    val hideToolGrid: Boolean = false,
+    /** Home section order between the top-bar edges (ids from [UiLayout.SECTIONS]).
+     *  Unknown entries are ignored; missing ones are appended (forward-compatible). */
+    val uiSections: List<String> = UiLayout.SECTIONS,
+    /** Top bar pinned to the bottom edge instead of the top. */
+    val topBarBottom: Boolean = false,
+    /** Terminal toolbar (Run/Stop, progress, font, Clear) above the output. */
+    val runRowTop: Boolean = true,
+    /** Tool description (hint text like "Live APs every 30s…") position:
+     *  above the tool row, below it (default), or hidden. */
+    val toolDescPos: String = "bottom",
+    /** Tool extra position (WiFi filter tabs, DIG record types) —
+     *  always kept adjacent to the tool row: above or below it (default). */
+    val toolExtraPos: String = "bottom",
+    /** Header inside the tool extra card: DIG's "Record type" row, WiFi's
+     *  Band/Channel/Security/Display tabs — top of the card (default) or bottom. */
+    val toolExtraHeader: String = "top"
 )
+
+/** Edit UI layout: the home-screen sections the user can reorder. The top bar
+ *  is not in the list — it only toggles between the top and bottom edge. */
+object UiLayout {
+    /** Section ids in default order (top to bottom). */
+    val SECTIONS = listOf("target", "tools", "terminal")
+
+    /** Allowed positions for the tool description (hint text). */
+    val DESC_POSITIONS = listOf("top", "bottom", "hide")
+
+    /** Allowed positions for the tool extra (no hide: interactive). */
+    val EXTRA_POSITIONS = listOf("top", "bottom")
+
+    /** Allowed positions for the tool extra card header. */
+    val HEADER_POSITIONS = listOf("top", "bottom")
+
+    /** Drop unknown ids, keep the stored order, append anything missing —
+     *  always returns a permutation of [SECTIONS] (forward-compatible prefs). */
+    fun sanitizeSections(raw: List<String>): List<String> =
+        (raw.filter { it in SECTIONS } + SECTIONS).distinct()
+
+    /** Any unknown description position falls back to the default (below). */
+    fun sanitizeDesc(raw: String?): String =
+        raw?.takeIf { it in DESC_POSITIONS } ?: "bottom"
+
+    /** Any unknown extra position falls back to the default (below). */
+    fun sanitizeExtra(raw: String?): String =
+        raw?.takeIf { it in EXTRA_POSITIONS } ?: "bottom"
+
+    /** Any unknown header position falls back to the default (top). */
+    fun sanitizeHeader(raw: String?): String =
+        raw?.takeIf { it in HEADER_POSITIONS } ?: "top"
+}
 
 object IpInfoPresets {
     /** Geo-capable providers: can look up any IP/domain. Used by IP Info. */

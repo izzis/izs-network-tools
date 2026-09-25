@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.GlobalPrefs
 import id.web.izs.nettools.model.SavedHost
+import id.web.izs.nettools.model.UiLayout
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -62,6 +63,12 @@ class SettingsRepository(private val context: Context) {
         val WIFI_ROWS = intPreferencesKey("wifi_rows")
         val LAST_TOOL = stringPreferencesKey("last_tool")
         val GLOBAL_PREFS = stringPreferencesKey("global_prefs")
+        val UI_SECTIONS = stringPreferencesKey("ui_sections")
+        val TOPBAR_BOTTOM = intPreferencesKey("topbar_bottom")
+        val RUN_ROWTOP = intPreferencesKey("run_row_top")
+        val TOOL_DESC = stringPreferencesKey("tool_desc")
+        val TOOL_EXTRA = stringPreferencesKey("tool_extra")
+        val EXTRA_HEADER = stringPreferencesKey("tool_extra_header")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -99,7 +106,15 @@ class SettingsRepository(private val context: Context) {
             toolOrder = decodeStrings(p[K.TOOL_ORDER], AppSettings().toolOrder),
             disabledTools = decodeStrings(p[K.DISABLED_TOOLS], AppSettings().disabledTools.toList()).toSet(),
             toolGridRows = p[K.TOOLGRIDROWS]?.takeIf { it == 1 || it == 2 } ?: 2,
-            hideToolGrid = (p[K.HIDEGRID] ?: 0) == 1
+            hideToolGrid = (p[K.HIDEGRID] ?: 0) == 1,
+            uiSections = UiLayout.sanitizeSections(
+                decodeStrings(p[K.UI_SECTIONS], AppSettings().uiSections)
+            ),
+            topBarBottom = (p[K.TOPBAR_BOTTOM] ?: 0) == 1,
+            runRowTop = (p[K.RUN_ROWTOP] ?: 1) == 1,
+            toolDescPos = UiLayout.sanitizeDesc(p[K.TOOL_DESC]),
+            toolExtraPos = UiLayout.sanitizeExtra(p[K.TOOL_EXTRA]),
+            toolExtraHeader = UiLayout.sanitizeHeader(p[K.EXTRA_HEADER])
         )
     }
 
@@ -137,6 +152,12 @@ class SettingsRepository(private val context: Context) {
             p[K.DISABLED_TOOLS] = json.encodeToString(s.disabledTools.toList())
             p[K.TOOLGRIDROWS] = if (s.toolGridRows == 1) 1 else 2
             p[K.HIDEGRID] = if (s.hideToolGrid) 1 else 0
+            p[K.UI_SECTIONS] = json.encodeToString(s.uiSections)
+            p[K.TOPBAR_BOTTOM] = if (s.topBarBottom) 1 else 0
+            p[K.RUN_ROWTOP] = if (s.runRowTop) 1 else 0
+            p[K.TOOL_DESC] = s.toolDescPos
+            p[K.TOOL_EXTRA] = s.toolExtraPos
+            p[K.EXTRA_HEADER] = s.toolExtraHeader
         }
     }
 

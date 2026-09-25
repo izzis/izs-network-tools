@@ -196,7 +196,7 @@ private fun NumberField(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -> Unit, onOpenAbout: () -> Unit) {
+fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -> Unit, onOpenAbout: () -> Unit, onOpenEditUi: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -254,12 +254,6 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
         }
     ) { pad ->
         Column(modifier = Modifier.fillMaxSize().padding(pad)) {
-            Text(
-                if (dirty) "Saving..." else "Changes save automatically.",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (dirty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            )
             PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
                 tabs.forEachIndexed { i, title ->
                     Tab(
@@ -293,7 +287,13 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                         0 -> ServersTab(s, ::update)
                         1 -> ScanTab(s, ::update)
                         2 -> ToolsTab(s, ::update)
-                        else -> GeneralTab(s, ::update, onOpenColors)
+                        else -> GeneralTab(s, ::update, onOpenColors, onOpenEditUi = {
+                            // Flush pending edits before leaving: the debounced
+                            // save dies with this composition.
+                            scope.launch { repo.saveSettings(s) }
+                            focusManager.clearFocus()
+                            onOpenEditUi()
+                        })
                     }
                 }
             }
@@ -457,32 +457,7 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
         known + Tool.entries.filter { it !in known }
     }
     val enabledCount = ordered.count { it.name !in s.disabledTools }
-    // Grid height: 2 rows (classic split, default) or 1 row = swipeable
-    // pages of 5 tools (more terminal height on Home).
-    Row(
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text("Home grid rows")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = s.toolGridRows == 1,
-                onClick = { update(s.copy(toolGridRows = 1)) },
-                label = { Text("1") }
-            )
-            FilterChip(
-                selected = s.toolGridRows == 2,
-                onClick = { update(s.copy(toolGridRows = 2)) },
-                label = { Text("2") }
-            )
-        }
-    }
-    Text(
-        "1 = one row, swipe for the next 5 tools · 2 = classic two-row split",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    // Grid rows (1 vs 2) live in Edit UI — it's layout, not tool config.
     Text(
         "Pick which tools show on Home and in what order. At least one must stay on.",
         style = MaterialTheme.typography.bodySmall,
@@ -559,7 +534,7 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
 }
 
 @Composable
-private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColors: () -> Unit) {
+private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColors: () -> Unit, onOpenEditUi: () -> Unit) {
     @Composable
     fun section(title: String) {
         Text(
@@ -591,6 +566,16 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
     ) {
         Text("Colored output")
         Switch(checked = s.coloredOutput, onCheckedChange = { update(s.copy(coloredOutput = it)) })
+    }
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Home layout (section order, Run row)")
+        TextButton(onClick = onOpenEditUi) {
+            Text("Edit UI")
+        }
     }
 
     section("Run")

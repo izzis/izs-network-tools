@@ -33,6 +33,7 @@ import id.web.izs.nettools.model.GlobalPrefs
 import id.web.izs.nettools.model.SavedHost
 import id.web.izs.nettools.model.SavedSort
 import id.web.izs.nettools.model.Tool
+import id.web.izs.nettools.model.UiLayout
 import id.web.izs.nettools.model.orderedEnabledTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -70,6 +71,8 @@ data class HomeUiState(
     val recent: List<String> = emptyList(),
     val dropExpanded: Boolean = false,
     val isTargetSaved: Boolean = false,
+    /** Set by Edit UI's View button: home shows a FAB back to Edit UI. */
+    val editUiFab: Boolean = false,
     /** WiFi Analyzer chip filters. Band + row count are persisted (DataStore)
      *  across launches; channel / security / display are session-only.
      *  Band + security are multi-select; default = every option. */
@@ -402,6 +405,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
+    fun setEditUiFab(v: Boolean) = _state.update { it.copy(editUiFab = v) }
     fun clearMessage() = _state.update { it.copy(message = null) }
     fun setMessage(m: String) = _state.update { it.copy(message = m) }
 
@@ -413,6 +417,51 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repo.saveSettings(_state.value.settings.copy(hideToolGrid = hidden))
         }
+    }
+
+    /** Edit UI: home section order (ids from UiLayout.SECTIONS). */
+    fun setUiSections(list: List<String>) {
+        _state.update { it.copy(settings = it.settings.copy(uiSections = list)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: top bar pinned bottom instead of top. */
+    fun setTopBarBottom(v: Boolean) {
+        _state.update { it.copy(settings = it.settings.copy(topBarBottom = v)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: terminal toolbar (Run/font/Clear) below the output. */
+    fun setRunRowTop(v: Boolean) {
+        _state.update { it.copy(settings = it.settings.copy(runRowTop = v)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: home tool grid rows (1 = swipeable pages, 2 = classic split). */
+    fun setToolGridRows(rows: Int) {
+        _state.update { it.copy(settings = it.settings.copy(toolGridRows = if (rows == 1) 1 else 2)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: tool description (hint text) above / below / hidden. */
+    fun setToolDescPos(v: String) {
+        val pos = UiLayout.sanitizeDesc(v)
+        _state.update { it.copy(settings = it.settings.copy(toolDescPos = pos)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: tool extra (WiFi tabs, DIG record types) above/below. */
+    fun setToolExtraPos(v: String) {
+        val pos = UiLayout.sanitizeExtra(v)
+        _state.update { it.copy(settings = it.settings.copy(toolExtraPos = pos)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: header inside the tool extra card, top or bottom. */
+    fun setToolExtraHeader(v: String) {
+        val pos = UiLayout.sanitizeHeader(v)
+        _state.update { it.copy(settings = it.settings.copy(toolExtraHeader = pos)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
     }
 
     fun pickTarget(host: String) {

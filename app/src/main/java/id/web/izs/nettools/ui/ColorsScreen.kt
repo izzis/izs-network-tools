@@ -74,6 +74,7 @@ private fun roleColor(
     "background" -> scheme.background
     "surface" -> scheme.surface
     "surfaceContainer" -> scheme.surfaceContainer
+    "surfaceContainerHighest" -> scheme.surfaceContainerHighest
     "primary" -> scheme.primary
     "onPrimary" -> scheme.onPrimary
     "primaryContainer" -> scheme.primaryContainer
