@@ -241,6 +241,20 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
             ) {
                 OutlinedButton(
                     onClick = {
+                        vm.setUiSections(listOf("terminal", "tools", "target"))
+                        vm.setTopBarBottom(true)
+                        vm.setRunRowTop(false)
+                        vm.setToolGridRows(2)
+                        vm.setToolDescPos("top")
+                        vm.setToolExtraPos("top")
+                        vm.setToolExtraHeader("bottom")
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Default bottom")
+                }
+                OutlinedButton(
+                    onClick = {
                         vm.setEditUiFab(true)
                         onView()
                     },
@@ -260,7 +274,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Reset to default")
+                    Text("Default")
                 }
             }
         }
