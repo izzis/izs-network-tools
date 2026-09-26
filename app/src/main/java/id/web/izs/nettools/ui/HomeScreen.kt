@@ -115,6 +115,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.SpanStyle
@@ -125,6 +126,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import id.web.izs.nettools.R
 import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.GlobalpingRunner
 import id.web.izs.nettools.core.LoopResult
@@ -442,8 +444,11 @@ fun HomeScreen(
     val recentShown = if (dropQuery.isEmpty()) recentBase
         else recentBase.filter { it.contains(dropQuery, true) }
 
-    LaunchedEffect(state.message) {
-        state.message?.let { snack.showSnackbar(it); vm.clearMessage() }
+    // Snackbar text: a raw String (localized at the call site) or a resource
+    // id from the ViewModel — resolved here, outside the suspend effect.
+    val snackMsg = state.message ?: state.messageRes?.let { stringResource(it) }
+    LaunchedEffect(snackMsg) {
+        snackMsg?.let { snack.showSnackbar(it); vm.clearMessage() }
     }
     // WiFi List display: re-sort LIVE AP blocks for the active sort chip
     // (connected first, then RSSI/SSID/channel). Plain lines and Channel rows
@@ -489,6 +494,8 @@ fun HomeScreen(
 
     // --- WiFi scan permission (first runtime permission in the app) ---
     val context = LocalContext.current
+    // The launcher callback is not composable: resolve the message here.
+    val permDeniedMsg = stringResource(R.string.home_perm_denied)
     val wifiPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
@@ -499,15 +506,12 @@ fun HomeScreen(
             grants[Manifest.permission.NEARBY_WIFI_DEVICES] == true
         if (fine && nearby) {
             if (!isLocationEnabled(context)) {
-                promptLocationSettings(context, vm)
+                promptLocationSettings(context, vm, R.string.home_location_off)
             } else {
                 vm.run()
             }
         } else {
-            vm.setMessage(
-                "Allow Location (and Nearby devices on Android 13+) in the system " +
-                    "dialog — or enable them for this app in Settings > Apps > Permissions"
-            )
+            vm.setMessage(permDeniedMsg)
         }
     }
     val runAction: () -> Unit = {
@@ -527,7 +531,7 @@ fun HomeScreen(
                 // Location services must be on for getScanResults on all APIs
                 // (permission alone still yields an empty list).
                 !isLocationEnabled(context) ->
-                    promptLocationSettings(context, vm)
+                    promptLocationSettings(context, vm, R.string.home_location_off)
                 else -> vm.run()
             }
         } else {
@@ -573,7 +577,8 @@ fun HomeScreen(
                     var toolMenu by remember { mutableStateOf(false) }
                     Box {
                         Text(
-                            text = if (state.hideToolGrid) state.tool.title else "Hide",
+                            text = if (state.hideToolGrid) state.tool.title
+                                else stringResource(R.string.hide),
                             style = MaterialTheme.typography.labelLarge,
                             color = if (state.hideToolGrid) {
                                 MaterialTheme.colorScheme.primary
@@ -603,7 +608,7 @@ fun HomeScreen(
                                     text = { Text(t.title) },
                                     trailingIcon = {
                                         if (t == state.tool) {
-                                            Icon(Icons.Filled.Check, contentDescription = "Current")
+                                            Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.home_current))
                                         }
                                     },
                                     onClick = {
@@ -616,10 +621,10 @@ fun HomeScreen(
                         }
                     }
                     IconButton(onClick = onOpenHosts) {
-                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Manage saved")
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.home_manage_saved))
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.home_settings))
                     }
                 }
             )
@@ -643,7 +648,7 @@ fun HomeScreen(
                     vm.setEditUiFab(false)
                     onOpenEditUi()
                 }) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Edit UI")
+                    Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit_ui))
                 }
             }
         }
@@ -698,21 +703,23 @@ fun HomeScreen(
                 readOnly = targetHidden,
                 label = {
                     Text(
-                        when (state.tool) {
-                            Tool.PING -> "IP / host"
-                            Tool.DIG -> "Domain name"
-                            Tool.TRACE -> "IP / host"
-                            Tool.WHOIS -> "Domain / IP"
-                            Tool.IPINFO -> "IP / host"
-                            Tool.MYIP -> "no target needed"
-                            Tool.HEADERS -> "URL / host"
-                            Tool.PORTS -> "IP / host (port optional)"
-                            Tool.CERT -> "Host (port optional)"
-                            Tool.LOOP -> "IP / host · empty=GW"
-                            Tool.NEIGHBOR -> "no target needed"
-                            Tool.SWEEP -> "IP range / CIDR"
-                            Tool.WIFIANALYZER -> "SSID / MAC filter"
-                        }
+                        stringResource(
+                            when (state.tool) {
+                                Tool.PING -> R.string.target_hint_ip_host
+                                Tool.DIG -> R.string.target_hint_domain_name
+                                Tool.TRACE -> R.string.target_hint_ip_host
+                                Tool.WHOIS -> R.string.target_hint_domain_ip
+                                Tool.IPINFO -> R.string.target_hint_ip_host
+                                Tool.MYIP -> R.string.target_hint_no_target
+                                Tool.HEADERS -> R.string.target_hint_url_host
+                                Tool.PORTS -> R.string.target_hint_ip_host_port
+                                Tool.CERT -> R.string.target_hint_host_port
+                                Tool.LOOP -> R.string.target_hint_ip_host_gw
+                                Tool.NEIGHBOR -> R.string.target_hint_no_target
+                                Tool.SWEEP -> R.string.target_hint_ip_range
+                                Tool.WIFIANALYZER -> R.string.target_hint_ssid_mac
+                            }
+                        )
                     )
                 },
                 singleLine = true,
@@ -723,13 +730,13 @@ fun HomeScreen(
                         // Clear doubles as the leading icon: no extra trailing
                         // button; focus stays so the keyboard remains open.
                         IconButton(onClick = { vm.setTarget("") }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear target")
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.home_clear_target))
                         }
                     }
                 },
                 trailingIcon = {
                     IconButton(onClick = { vm.setDrop(!state.dropExpanded) }, enabled = !targetHidden) {
-                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "Saved list")
+                        Icon(Icons.Filled.ArrowDropDown, contentDescription = stringResource(R.string.home_saved_list))
                     }
                 },
                 shape = RoundedCornerShape(16.dp),
@@ -773,15 +780,15 @@ fun HomeScreen(
                         // Saved below with Save/Remove on its header row.
                         if (state.settings.maxRecent > 0) {
                             Text(
-                                "Recent",
+                                stringResource(R.string.home_recent),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                             )
                             if (recentShown.isEmpty()) {
                                 Text(
-                                    if (dropQuery.isEmpty()) "No history yet."
-                                    else "No recent match for \"$dropQuery\".",
+                                    if (dropQuery.isEmpty()) stringResource(R.string.home_no_history)
+                                    else stringResource(R.string.home_no_recent_match, dropQuery),
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                 )
@@ -800,7 +807,7 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                "Saved",
+                                stringResource(R.string.home_saved),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
@@ -820,7 +827,8 @@ fun HomeScreen(
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        if (state.isTargetSaved) "Remove" else "Save",
+                                        if (state.isTargetSaved) stringResource(R.string.home_remove)
+                                        else stringResource(R.string.save),
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 1
                                     )
@@ -829,8 +837,8 @@ fun HomeScreen(
                         }
                         if (savedShown.isEmpty()) {
                             Text(
-                                if (dropQuery.isEmpty()) "Empty. Type a target, then tap Save."
-                                else "No saved match for \"$dropQuery\".",
+                                if (dropQuery.isEmpty()) stringResource(R.string.home_saved_empty)
+                                else stringResource(R.string.home_no_saved_match, dropQuery),
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                             )
@@ -861,32 +869,35 @@ fun HomeScreen(
             val toolHints: @Composable ColumnScope.() -> Unit = {
             if (state.tool == Tool.PING) {
                 Text(
-                    "ICMP ping - hold Ping for Local / Global engine",
+                    stringResource(R.string.hint_ping),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.DIG) {
                 Text(
-                    "DNS lookup - pick record type - hold Dig to change server",
+                    stringResource(R.string.hint_dig),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.WHOIS) {
                 Text(
-                    "Domain / IP registration - RDAP + whois port 43 - hold Whois to change server",
+                    stringResource(R.string.hint_whois),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.TRACE) {
                 Text(
-                    (if (state.traceGlobal) "Traceroute - Globalping x${state.globalProbes} - hold Trace to change"
-                    else "Traceroute - max ${state.settings.maxHops} hops (Settings) - hold Trace for Global"),
+                    (if (state.traceGlobal)
+                        stringResource(R.string.hint_trace_global, state.globalProbes)
+                    else stringResource(
+                        R.string.hint_trace_local, state.settings.maxHops
+                    )),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.LOOP) {
                 Text(
-                    "Detects L2 broadcast storms and L3 routing loops - hold Loop to pick L2/L3/Both",
+                    stringResource(R.string.hint_loop),
                     style = MaterialTheme.typography.bodySmall
                 )
                 // Verdict banners: pop in when the Loop run finishes (or stops
@@ -896,49 +907,52 @@ fun HomeScreen(
             }
             if (state.tool == Tool.CERT) {
                 Text(
-                    "TLS certificate - port 443, host:port for another",
+                    stringResource(R.string.hint_cert),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.MYIP) {
                 Text(
-                    "This device's public IP - hold My IP to change provider - target field ignored",
+                    stringResource(R.string.hint_myip),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.NEIGHBOR) {
                 Text(
-                    "LAN discovery: MNDP + mDNS + SSDP - target ignored",
+                    stringResource(R.string.hint_neighbor),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.IPINFO) {
                 Text(
-                    "IP / domain lookup - geolocation, ASN - hold IP Info to change provider",
+                    stringResource(R.string.hint_ipinfo),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.PORTS) {
                 Text(
-                    "Port scanner - list from Settings, host:port for one port - hold Ports for source + presets",
+                    stringResource(R.string.hint_ports),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.HEADERS) {
                 Text(
-                    "HTTP response headers - URL or host (path included, https assumed)",
+                    stringResource(R.string.hint_headers),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.SWEEP) {
                 Text(
-                    "Ping sweep - range goes in the target field (e.g. 10.0.0.0/24)",
+                    stringResource(R.string.hint_sweep),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.WIFIANALYZER) {
                 Text(
-                    "WiFi AP scanner - live APs every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s, SSID/MAC filter in the target field",
+                    stringResource(
+                        R.string.hint_wifi,
+                        WifiAnalyzerRunner.REFRESH_MS / 1000
+                    ),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -951,9 +965,12 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Record type", style = MaterialTheme.typography.labelLarge)
                         Text(
-                            "DNS server: ${state.settings.dnsServer}",
+                            stringResource(R.string.home_record_type),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            stringResource(R.string.home_dns_server, state.settings.dnsServer),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -995,13 +1012,20 @@ fun HomeScreen(
                     selectedTabIndex = wifiFilterDim,
                     containerColor = CardDefaults.cardColors().containerColor
                 ) {
-                    listOf("Band", "Channel", "Security", "Display").forEachIndexed { i, name ->
+                    listOf(
+                        R.string.wifi_tab_band, R.string.wifi_tab_channel,
+                        R.string.wifi_tab_security, R.string.wifi_tab_display
+                    ).forEachIndexed { i, nameRes ->
                         Tab(
                             selected = wifiFilterDim == i,
                             onClick = { wifiFilterDim = i },
                             modifier = Modifier.height(36.dp),
                             text = {
-                                Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                                Text(
+                                    stringResource(nameRes),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1
+                                )
                             }
                         )
                     }
@@ -1018,7 +1042,9 @@ fun HomeScreen(
                     1 -> {
                         val chans = listOf(-1) + state.wifiChannels
                         OptionRow(
-                            options = chans.map { c -> c to (if (c == -1) "All" else "$c") },
+                            options = chans.map { c ->
+                                c to (if (c == -1) stringResource(R.string.wifi_all) else "$c")
+                            },
                             selected = state.wifiChannel,
                             onSelect = vm::setWifiChannel
                         )
@@ -1039,8 +1065,8 @@ fun HomeScreen(
                             .horizontalScroll(rememberScrollState())
                     ) {
                         listOf(
-                            WifiAnalyzerRunner.DISPLAY_LIST to "List",
-                            WifiAnalyzerRunner.DISPLAY_CHANNEL to "Channel"
+                            WifiAnalyzerRunner.DISPLAY_LIST to stringResource(R.string.wifi_display_list),
+                            WifiAnalyzerRunner.DISPLAY_CHANNEL to stringResource(R.string.wifi_display_channel)
                         ).forEach { (value, label) ->
                             FilterChip(
                                 selected = value == state.wifiDisplay,
@@ -1053,7 +1079,7 @@ fun HomeScreen(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Sort:",
+                            stringResource(R.string.wifi_sort),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1075,7 +1101,7 @@ fun HomeScreen(
                         // changed, so it stays off-screen on narrow displays.
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Rows:",
+                            stringResource(R.string.wifi_rows),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1118,9 +1144,15 @@ fun HomeScreen(
                     rows = state.settings.toolGridRows,
                     extraSub = { t ->
                         when (t) {
-                            Tool.PING -> if (state.pingGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
-                            Tool.TRACE -> if (state.traceGlobal) globalSub(state.globalProbes, state.globalCountry) else "Local"
-                            Tool.PORTS -> if (state.portsGlobal) "Global" else "Local"
+                            Tool.PING -> if (state.pingGlobal)
+                                globalSub(state.globalProbes, state.globalCountry)
+                            else stringResource(R.string.home_local)
+                            Tool.TRACE -> if (state.traceGlobal)
+                                globalSub(state.globalProbes, state.globalCountry)
+                            else stringResource(R.string.home_local)
+                            Tool.PORTS -> if (state.portsGlobal)
+                                stringResource(R.string.home_global)
+                            else stringResource(R.string.home_local)
                             Tool.LOOP -> state.loopMode.sub
                             // WiFi Analyzer: no gray subtitle — the filter tabs
                             // below the hint carry that state more clearly.
@@ -1206,7 +1238,8 @@ fun HomeScreen(
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    if (state.running) "Stop" else "Run",
+                                    if (state.running) stringResource(R.string.home_stop)
+                                    else stringResource(R.string.home_run),
                                     color = if (state.running) term.green else term.text
                                 )
                             }
@@ -1243,7 +1276,7 @@ fun HomeScreen(
                                     )
                                 } else if (wifiCountdown > 0) {
                                     Text(
-                                        "next ${wifiCountdown}s",
+                                        stringResource(R.string.home_next_s, wifiCountdown),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = term.green,
                                         maxLines = 1,
@@ -1267,14 +1300,14 @@ fun HomeScreen(
                                         tint = term.text
                                     )
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Sort", color = term.text)
+                                    Text(stringResource(R.string.home_sort), color = term.text)
                                 }
                             }
                             IconButton(onClick = { vm.bumpFont(-1f) }) {
-                                Icon(Icons.Filled.TextDecrease, contentDescription = "Smaller text", tint = term.text)
+                                Icon(Icons.Filled.TextDecrease, contentDescription = stringResource(R.string.home_smaller_text), tint = term.text)
                             }
                             IconButton(onClick = { vm.bumpFont(1f) }) {
-                                Icon(Icons.Filled.TextIncrease, contentDescription = "Bigger text", tint = term.text)
+                                Icon(Icons.Filled.TextIncrease, contentDescription = stringResource(R.string.home_bigger_text), tint = term.text)
                             }
                             TextButton(onClick = { vm.clearOutput() }) {
                                 Icon(
@@ -1284,7 +1317,7 @@ fun HomeScreen(
                                     tint = term.text
                                 )
                                 Spacer(Modifier.width(4.dp))
-                                Text("Clear", color = term.text)
+                                Text(stringResource(R.string.home_clear), color = term.text)
                             }
                         }
                         }
@@ -1370,7 +1403,7 @@ private fun TargetRow(
             IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
                 Icon(
                     Icons.Filled.Close,
-                    contentDescription = "Remove",
+                    contentDescription = stringResource(R.string.home_remove),
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1406,7 +1439,7 @@ private fun LoopVerdictBanner(verdict: LoopResult) {
             container = MaterialTheme.colorScheme.errorContainer
             onContainer = MaterialTheme.colorScheme.onErrorContainer
             icon = Icons.Filled.Error
-            title = "Routing loop detected"
+            title = stringResource(R.string.dlg_loop_detected)
             detail = verdict.message
                 .removePrefix("LOOP DETECTED: ")
                 .removeSuffix(" (routing loop suspected)")
@@ -1416,7 +1449,7 @@ private fun LoopVerdictBanner(verdict: LoopResult) {
             container = MaterialTheme.colorScheme.tertiaryContainer
             onContainer = MaterialTheme.colorScheme.onTertiaryContainer
             icon = Icons.Filled.Warning
-            title = "Possible loop - destination never reached"
+            title = stringResource(R.string.dlg_loop_possible)
             detail = verdict.message
         }
         is LoopResult.NoLoop -> return // Unreachable: filtered above.
@@ -1468,7 +1501,7 @@ private fun StormVerdictBanner(verdict: StormResult) {
             container = MaterialTheme.colorScheme.errorContainer
             onContainer = MaterialTheme.colorScheme.onErrorContainer
             icon = Icons.Filled.Error
-            title = "Broadcast storm detected"
+            title = stringResource(R.string.dlg_storm_detected)
             detail = verdict.message
                 .removePrefix("STORM DETECTED: ")
                 .removeSuffix(" (frames circulating — L2 loop suspected)")
@@ -1480,7 +1513,7 @@ private fun StormVerdictBanner(verdict: StormResult) {
             container = MaterialTheme.colorScheme.tertiaryContainer
             onContainer = MaterialTheme.colorScheme.onTertiaryContainer
             icon = Icons.Filled.Warning
-            title = "Possible storm - gateway looks off"
+            title = stringResource(R.string.dlg_storm_possible)
             detail = verdict.message
         }
         is StormResult.NoStorm -> return // Unreachable: filtered above.
@@ -1526,7 +1559,7 @@ private fun ToolSelector(
     enabled: Boolean,
     settings: AppSettings,
     rows: Int,
-    extraSub: (Tool) -> String?,
+    extraSub: @Composable (Tool) -> String?,
     onSelect: (Tool) -> Unit,
     onLongPress: (Tool) -> Unit
 ) {
@@ -1561,18 +1594,19 @@ private fun ToolSelector(
     }
 }
 
-/** Server backing for the tools that have one; null = long-press does nothing. */
+/** Server backing for the tools that have one; null = long-press does nothing.
+ *  [labelRes] is a resource id (non-composable, resolved at the dialog title). */
 private data class ServerSlot(
-    val label: String,
+    val labelRes: Int,
     val current: String,
     val presets: List<Pair<String, String>>
 )
 
 private fun toolServerSlot(tool: Tool, s: AppSettings): ServerSlot? = when (tool) {
-    Tool.DIG -> ServerSlot("DNS server", s.dnsServer, DnsPresets.all)
-    Tool.WHOIS -> ServerSlot("Whois server", s.whoisServer, WhoisPresets.all)
-    Tool.IPINFO -> ServerSlot("IP lookup provider", s.ipLookupBase, IpInfoPresets.lookup)
-    Tool.MYIP -> ServerSlot("My IP provider", s.myIpBase, IpInfoPresets.myIp)
+    Tool.DIG -> ServerSlot(R.string.dlg_slot_dns, s.dnsServer, DnsPresets.all)
+    Tool.WHOIS -> ServerSlot(R.string.dlg_slot_whois, s.whoisServer, WhoisPresets.all)
+    Tool.IPINFO -> ServerSlot(R.string.dlg_slot_ip_lookup, s.ipLookupBase, IpInfoPresets.lookup)
+    Tool.MYIP -> ServerSlot(R.string.dlg_slot_myip, s.myIpBase, IpInfoPresets.myIp)
     else -> null
 }
 
@@ -1586,7 +1620,7 @@ private fun ToolSelectorRow(
     selected: Tool,
     enabled: Boolean,
     settings: AppSettings,
-    extraSub: (Tool) -> String?,
+    extraSub: @Composable (Tool) -> String?,
     onSelect: (Tool) -> Unit,
     onLongPress: (Tool) -> Unit
 ) {
@@ -1656,8 +1690,10 @@ private fun ToolSelectorRow(
 }
 
 /** Short gray subtitle for an active global scope, e.g. "Global x10" or "Global x1 ID". */
+@Composable
 private fun globalSub(probes: Int, country: String): String =
-    if (country.isEmpty()) "Global x$probes" else "Global x$probes $country"
+    if (country.isEmpty()) stringResource(R.string.home_global_x, probes)
+    else stringResource(R.string.home_global_x_country, probes, country)
 
 /**
  * Runtime grant check for the WiFi Analyzer scan. FINE_LOCATION is required
@@ -1685,12 +1721,10 @@ private fun isLocationEnabled(context: Context): Boolean {
     }
 }
 
-/** Location is off: explain + jump to the system toggle (it cannot be flipped in-app). */
-private fun promptLocationSettings(context: Context, vm: NetToolsViewModel) {
-    vm.setMessage(
-        "Turn on Location (GPS) — Android returns empty WiFi scans without it. " +
-            "Also allow Location for this app in Settings > Apps, then tap Run"
-    )
+/** Location is off: explain + jump to the system toggle (it cannot be flipped in-app).
+ *  [messageRes] is a resource id — this runs outside any composable. */
+private fun promptLocationSettings(context: Context, vm: NetToolsViewModel, messageRes: Int) {
+    vm.setMessage(context.getString(messageRes))
     try {
         context.startActivity(
             Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
@@ -1765,7 +1799,11 @@ private fun WifiMultiOptionRow(
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 modifier = Modifier.height(28.dp)
             ) {
-                Text("Select All", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                Text(
+                    stringResource(R.string.wifi_select_all),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -1790,14 +1828,18 @@ private fun ScopePickerDialog(
     var custom by remember { mutableStateOf(country) }
     var draftList by remember(portList) { mutableStateOf(portList) }
     val localLabel = when (tool) {
-        Tool.PING -> "This device"
-        Tool.TRACE -> "System"
-        else -> "Local (live TCP connect)"
+        Tool.PING -> stringResource(R.string.dlg_local_device)
+        Tool.TRACE -> stringResource(R.string.dlg_local_system)
+        else -> stringResource(R.string.dlg_local_tcp)
     }
-    val globalLabel = if (simple) "Global (Shodan InternetDB)" else "Global (worldwide probes)"
+    val globalLabel = if (simple) stringResource(R.string.dlg_global_shodan)
+    else stringResource(R.string.dlg_global_probes)
+    // Same localized text the "Custom" chip shows — compared against it below,
+    // never against a hardcoded English literal.
+    val customLabel = stringResource(R.string.dlg_custom)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${tool.title}: source") },
+        title = { Text(stringResource(R.string.dlg_tool_source, tool.title)) },
         text = {
             // Fixed header (source, probes, custom field); only the
             // country preset list below scrolls.
@@ -1821,12 +1863,12 @@ private fun ScopePickerDialog(
                     // back to the Settings port list.
                     if (idx == 0 && portList != null && !global) {
                         Text(
-                            "Port list",
+                            stringResource(R.string.dlg_port_list),
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(top = 6.dp)
                         )
                         val items = PortChecker.scanPresets.map { it.key to it.value } +
-                            ("Custom" to portList)
+                            (customLabel to portList)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             items.chunked(2).forEach { row ->
                                 Row(
@@ -1834,7 +1876,7 @@ private fun ScopePickerDialog(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     row.forEach { (label, value) ->
-                                        val isCustom = label == "Custom"
+                                        val isCustom = label == customLabel
                                         FilterChip(
                                             selected = if (isCustom) {
                                                 draftList !in PortChecker.scanPresets.values
@@ -1859,7 +1901,7 @@ private fun ScopePickerDialog(
                 }
                 if (global && !simple) {
                     Text(
-                        "Probes",
+                        stringResource(R.string.dlg_probes),
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(top = 4.dp)
                     )
@@ -1877,15 +1919,15 @@ private fun ScopePickerDialog(
                 // Empty code = API picks randomly worldwide (the default).
                 if (global && n == 1 && !simple) {
                     Text(
-                        "Probe location",
+                        stringResource(R.string.dlg_probe_location),
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(top = 4.dp)
                     )
                     OutlinedTextField(
                         value = custom,
                         onValueChange = { custom = it.trim().uppercase().take(2); c = custom },
-                        label = { Text("Country code (empty = auto)") },
-                        placeholder = { Text("e.g. ID") },
+                        label = { Text(stringResource(R.string.dlg_country_code)) },
+                        placeholder = { Text(stringResource(R.string.dlg_country_example)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Text,
@@ -1919,10 +1961,12 @@ private fun ScopePickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(global, n, c, draftList); onDismiss() }) { Text("Save") }
+            TextButton(onClick = { onSave(global, n, c, draftList); onDismiss() }) {
+                Text(stringResource(R.string.save))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }
@@ -1937,14 +1981,14 @@ private fun LoopModePickerDialog(
     var picked by remember { mutableStateOf(current) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Loop: detection mode") },
+        title = { Text(stringResource(R.string.dlg_loop_mode)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 LoopRunner.LoopMode.entries.forEach { m ->
                     val hint = when (m) {
-                        LoopRunner.LoopMode.BOTH -> "Gateway storm check + trace (default)"
-                        LoopRunner.LoopMode.L2_ONLY -> "Gateway storm check only (fast)"
-                        LoopRunner.LoopMode.L3_ONLY -> "Routing-loop trace only"
+                        LoopRunner.LoopMode.BOTH -> stringResource(R.string.dlg_loop_both)
+                        LoopRunner.LoopMode.L2_ONLY -> stringResource(R.string.dlg_loop_l2)
+                        LoopRunner.LoopMode.L3_ONLY -> stringResource(R.string.dlg_loop_l3)
                     }
                     Row(
                         modifier = Modifier
@@ -1968,10 +2012,10 @@ private fun LoopModePickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(picked); onDismiss() }) { Text("Save") }
+            TextButton(onClick = { onSave(picked); onDismiss() }) { Text(stringResource(R.string.save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }
@@ -1987,7 +2031,11 @@ private fun ServerPickerDialog(
     var picked by remember(slot.current) { mutableStateOf(slot.current) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("${tool.title}: ${slot.label}") },
+        title = {
+            Text(
+                stringResource(R.string.dlg_tool_slot, tool.title, stringResource(slot.labelRes))
+            )
+        },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1996,7 +2044,7 @@ private fun ServerPickerDialog(
                 OutlinedTextField(
                     value = custom,
                     onValueChange = { custom = it.trim(); picked = custom },
-                    label = { Text("Custom") },
+                    label = { Text(stringResource(R.string.dlg_custom)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
@@ -2033,10 +2081,12 @@ private fun ServerPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(picked.trim()); onDismiss() }) { Text("Save") }
+            TextButton(onClick = { onSave(picked.trim()); onDismiss() }) {
+                Text(stringResource(R.string.save))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }

@@ -69,6 +69,7 @@ class SettingsRepository(private val context: Context) {
         val TOOL_DESC = stringPreferencesKey("tool_desc")
         val TOOL_EXTRA = stringPreferencesKey("tool_extra")
         val EXTRA_HEADER = stringPreferencesKey("tool_extra_header")
+        val LANGUAGE = stringPreferencesKey("language")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -100,6 +101,7 @@ class SettingsRepository(private val context: Context) {
             outputFontSp = p[K.OUTFONT] ?: AppSettings().outputFontSp,
             maxRecent = p[K.MAXRECENT] ?: AppSettings().maxRecent,
             theme = p[K.THEME] ?: AppSettings().theme,
+            language = p[K.LANGUAGE] ?: AppSettings().language,
             customColors = decodeColors(p[K.COLORS]),
             colorSchemes = decodeSchemes(p[K.SCHEMES]),
             schemeName = p[K.SCHEME_NAME] ?: "",
@@ -145,6 +147,7 @@ class SettingsRepository(private val context: Context) {
             p[K.OUTFONT] = s.outputFontSp
             p[K.MAXRECENT] = s.maxRecent
             p[K.THEME] = s.theme
+            p[K.LANGUAGE] = s.language
             p[K.COLORS] = json.encodeToString(s.customColors)
             p[K.SCHEMES] = json.encodeToString(s.colorSchemes)
             p[K.SCHEME_NAME] = s.schemeName

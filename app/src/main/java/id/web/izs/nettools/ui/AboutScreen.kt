@@ -26,26 +26,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import id.web.izs.nettools.R
 
-private data class Credit(val name: String, val note: String, val url: String)
+private data class Credit(val name: String, val noteRes: Int, val url: String)
 
+// Names are product names (stay English); the notes are UI text.
 private val CREDITS = listOf(
     Credit(
         "Shodan InternetDB",
-        "Passive open-port + vuln data for Global Ports. Weekly scan, free for non-commercial use, no key.",
+        R.string.credit_shodan_note,
         "https://internetdb.shodan.io/"
     ),
     Credit(
         "Globalping",
-        "Worldwide probes for Global Ping/Trace. Free, no key (250 tests/hour anonymous); optional token raises limits.",
+        R.string.credit_globalping_note,
         "https://globalping.io/"
     ),
     Credit(
         "dnsjava",
-        "DNS client behind the Dig tool.",
+        R.string.credit_dnsjava_note,
         "https://github.com/ibauersachs/dnsjava"
     )
 )
@@ -79,10 +82,10 @@ fun AboutScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About") },
+                title = { Text(stringResource(R.string.about_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -103,29 +106,29 @@ fun AboutScreen(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                "Ping, DNS, traceroute, whois, ports, certs and more — local engines plus global sources, long-press a tool to switch scope or server.",
+                stringResource(R.string.about_app_desc),
                 style = MaterialTheme.typography.bodyMedium
             )
             ListItem(
-                headlineContent = { Text("Source code on GitHub") },
+                headlineContent = { Text(stringResource(R.string.about_source)) },
                 supportingContent = { Text(ABOUT_REPO_URL) },
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                 modifier = Modifier.clickable { open(ABOUT_REPO_URL) }
             )
-            Text("Data & services", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.about_data_services), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             CREDITS.forEach { c ->
                 ListItem(
                     headlineContent = { Text(c.name) },
-                    supportingContent = { Text(c.note) },
+                    supportingContent = { Text(stringResource(c.noteRes)) },
                     trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { open(c.url) }
                 )
             }
-            Text("License", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.about_license), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text(
-                "MIT © 2026 izs. Free and open-source; global data sources belong to their respective owners and follow their own terms.",
+                stringResource(R.string.about_license_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

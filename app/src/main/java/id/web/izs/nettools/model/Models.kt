@@ -70,6 +70,9 @@ data class AppSettings(
     val coloredOutput: Boolean = true,
     val outputFontSp: Float = 13f,
     val theme: String = "dark",
+    /** UI language: "system" follows the device, "en" English, "in" Bahasa
+     *  Indonesia. Terminal output stays English either way - it mirrors dig/CLI. */
+    val language: String = "system",
     val maxRecent: Int = 5,
     val customColors: Map<String, String> = emptyMap(),
     val colorSchemes: Map<String, Map<String, String>> = emptyMap(),

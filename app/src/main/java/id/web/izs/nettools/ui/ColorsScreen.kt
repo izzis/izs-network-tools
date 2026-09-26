@@ -49,11 +49,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import id.web.izs.nettools.R
 import kotlin.math.roundToInt
 
 private val CuratedColors = listOf(
@@ -99,13 +101,13 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Custom colors") },
+                title = { Text(stringResource(R.string.colors_title)) },
                 navigationIcon = {
                     IconButton(onClick = {
                         focusManager.clearFocus()
                         onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -121,7 +123,7 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Overrides apply on top of the current base theme. Changes apply live.",
+                stringResource(R.string.colors_overrides_help),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -151,7 +153,7 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Scheme name") },
+                    label = { Text(stringResource(R.string.colors_scheme_name)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
@@ -167,12 +169,12 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
                     },
                     enabled = name.isNotBlank()
                 ) {
-                    Icon(Icons.Filled.Save, contentDescription = "Save color scheme")
+                    Icon(Icons.Filled.Save, contentDescription = stringResource(R.string.colors_save_scheme))
                 }
             }
             if (settings.colorSchemes.isNotEmpty()) {
                 Text(
-                    "Saved schemes (${settings.colorSchemes.size}) — tap to apply",
+                    stringResource(R.string.colors_saved_schemes, settings.colorSchemes.size),
                     style = MaterialTheme.typography.titleMedium
                 )
                 settings.colorSchemes.keys.sorted().forEach { saved ->
@@ -195,14 +197,17 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
                         IconButton(onClick = { vm.deleteScheme(saved) }) {
                             Icon(
                                 Icons.Filled.Delete,
-                                contentDescription = "Delete $saved",
+                                contentDescription = stringResource(R.string.colors_delete_scheme, saved),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
             }
-            Text("Sections (${CustomColorRoles.size})", style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.colors_sections, CustomColorRoles.size),
+                style = MaterialTheme.typography.titleMedium
+            )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -236,7 +241,7 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
                 }
             }
             Text(
-                "Tap a section to change its color. Bordered sections are customized.",
+                stringResource(R.string.colors_tap_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -244,7 +249,7 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
                 onClick = { vm.resetCustomColors() },
                 enabled = overrides.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Reset all") }
+            ) { Text(stringResource(R.string.colors_reset_all)) }
         }
     }
 
@@ -260,14 +265,14 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
                 )
             },
             confirmButton = {
-                TextButton(onClick = { editingRole = null }) { Text("OK") }
+                TextButton(onClick = { editingRole = null }) { Text(stringResource(R.string.ok)) }
             },
             dismissButton = if (customized) {
                 {
                     TextButton(onClick = {
                         vm.clearCustomColor(key)
                         editingRole = null
-                    }) { Text("Default") }
+                    }) { Text(stringResource(R.string.defaults)) }
                 }
             } else null
         )
@@ -310,13 +315,13 @@ private fun ColorPickerContent(
             ) {
                 Icon(
                     Icons.Filled.Palette,
-                    contentDescription = "Open full color picker",
+                    contentDescription = stringResource(R.string.colors_open_picker),
                     tint = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.size(20.dp).padding(2.dp)
                 )
             }
             Text(
-                if (hexError) "Invalid hex" else hex.uppercase(),
+                if (hexError) stringResource(R.string.colors_invalid_hex) else hex.uppercase(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
@@ -348,7 +353,7 @@ private fun ColorPickerContent(
                 hexError = norm == null
                 if (norm != null) onPick(norm)
             },
-            label = { Text("Hex color (#rrggbb)") },
+            label = { Text(stringResource(R.string.colors_hex_label)) },
             singleLine = true,
             isError = hexError,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
@@ -387,7 +392,7 @@ private fun FullColorPickerDialog(
     val preview = Color(android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Pick a color") },
+        title = { Text(stringResource(R.string.colors_pick_color)) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -403,23 +408,23 @@ private fun FullColorPickerDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                HsvSlider("Hue", "${h.roundToInt()}°", h, 0f, 360f) { h = it }
-                HsvSlider("Saturation", "${(s * 100).roundToInt()}%", s, 0f, 1f) { s = it }
-                HsvSlider("Brightness", "${(v * 100).roundToInt()}%", v, 0f, 1f) { v = it }
+                HsvSlider(R.string.colors_hue, "${h.roundToInt()}°", h, 0f, 360f) { h = it }
+                HsvSlider(R.string.colors_saturation, "${(s * 100).roundToInt()}%", s, 0f, 1f) { s = it }
+                HsvSlider(R.string.colors_brightness, "${(v * 100).roundToInt()}%", v, 0f, 1f) { v = it }
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 onPick(colorToHex(preview))
                 onDismiss()
-            }) { Text("Done") }
+            }) { Text(stringResource(R.string.done)) }
         }
     )
 }
 
 @Composable
 private fun HsvSlider(
-    label: String,
+    labelRes: Int,
     valueText: String,
     value: Float,
     min: Float,
@@ -431,7 +436,7 @@ private fun HsvSlider(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(label, style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(labelRes), style = MaterialTheme.typography.bodySmall)
             Text(valueText, style = MaterialTheme.typography.bodySmall)
         }
         Slider(

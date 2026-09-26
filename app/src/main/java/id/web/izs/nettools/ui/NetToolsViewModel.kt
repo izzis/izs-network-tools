@@ -7,6 +7,7 @@ import android.net.wifi.WifiManager
 import android.telephony.TelephonyManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import id.web.izs.nettools.R
 import id.web.izs.nettools.core.CertChecker
 import id.web.izs.nettools.core.DnsRunner
 import id.web.izs.nettools.core.LoopDetector
@@ -65,6 +66,8 @@ data class HomeUiState(
     val progress: String? = null,
     val startedAt: Long = 0L,
     val message: String? = null,
+    /** Snackbar text resolved from resources (UI language aware). */
+    val messageRes: Int? = null,
     val settings: AppSettings = AppSettings(),
     val settingsLoaded: Boolean = false,
     val saved: List<SavedHost> = emptyList(),
@@ -409,8 +412,8 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun setDrop(e: Boolean) = _state.update { it.copy(dropExpanded = e) }
     fun setEditUiFab(v: Boolean) = _state.update { it.copy(editUiFab = v) }
-    fun clearMessage() = _state.update { it.copy(message = null) }
-    fun setMessage(m: String) = _state.update { it.copy(message = m) }
+    fun clearMessage() = _state.update { it.copy(message = null, messageRes = null) }
+    fun setMessage(m: String) = _state.update { it.copy(message = m, messageRes = null) }
 
     /** Top-bar Hide/Show: collapse the tool grid for more terminal height.
      *  Persisted — the collapsed state is restored on the next app start. */
@@ -479,7 +482,7 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleSave(label: String = "") {
         val host = _state.value.target.trim()
         if (host.isEmpty()) {
-            _state.update { it.copy(message = "Enter a target first before saving") }
+            _state.update { it.copy(messageRes = R.string.msg_enter_target_save) }
             return
         }
         viewModelScope.launch {
@@ -487,13 +490,13 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 _state.value.saved.firstOrNull { it.host.equals(host, ignoreCase = true) }?.let {
                     repo.deleteSaved(it.id)
                 }
-                _state.update { it.copy(isTargetSaved = false, message = "Removed from saved") }
+                _state.update { it.copy(isTargetSaved = false, messageRes = R.string.msg_removed_saved) }
             } else {
                 val ok = repo.addSaved(label, host)
                 _state.update {
                     it.copy(
                         isTargetSaved = ok,
-                        message = if (ok) "Saved — just pick it next time" else "Already in saved"
+                        messageRes = if (ok) R.string.msg_saved_next_time else R.string.msg_already_saved
                     )
                 }
             }
@@ -612,13 +615,13 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         // target (Loop uses the gateway, Neighbor listens, WiFi scans the air;
         // the WiFi target bar is an optional SSID/MAC filter).
         if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && st.tool != Tool.WIFIANALYZER && rawTarget.isEmpty()) {
-            _state.update { it.copy(message = "Enter a target first (IP / host)") }
+            _state.update { it.copy(messageRes = R.string.msg_enter_target) }
             return
         }
         if (st.running) return
         val parsed = TargetParser.parse(rawTarget)
         if (st.tool != Tool.MYIP && st.tool != Tool.SWEEP && st.tool != Tool.NEIGHBOR && st.tool != Tool.LOOP && st.tool != Tool.WIFIANALYZER && parsed.host.isEmpty()) {
-            _state.update { it.copy(message = "Invalid target") }
+            _state.update { it.copy(messageRes = R.string.msg_invalid_target) }
             return
         }
         job?.cancel()

@@ -27,16 +27,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import id.web.izs.nettools.R
 import id.web.izs.nettools.model.UiLayout
 
-private fun sectionTitle(id: String): String = when (id) {
-    "topbar" -> "Top bar"
-    "target" -> "Target box"
-    "tools" -> "Tools"
-    "terminal" -> "Terminal"
-    else -> id
+private fun sectionTitleRes(id: String): Int? = when (id) {
+    "topbar" -> R.string.editui_section_topbar
+    "target" -> R.string.editui_section_target
+    "tools" -> R.string.editui_section_tools
+    "terminal" -> R.string.editui_section_terminal
+    else -> null
 }
 
 /**
@@ -83,10 +85,10 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Edit UI") },
+                title = { Text(stringResource(R.string.editui_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -101,7 +103,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Cards follow the home order. Top bar arrows jump to the edge; other sections move one step per tap.",
+                stringResource(R.string.editui_order_help),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -112,15 +114,18 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                         modifier = Modifier.fillMaxWidth().padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        val titleRes = sectionTitleRes(id)
+                        val sectionLabel = if (titleRes != null) stringResource(titleRes) else id
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    sectionTitle(id),
+                                    sectionLabel,
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 if (id == "topbar") {
                                     Text(
-                                        if (s.topBarBottom) "Bottom edge" else "Top edge",
+                                        if (s.topBarBottom) stringResource(R.string.editui_edge_bottom)
+                                        else stringResource(R.string.editui_edge_top),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -133,8 +138,8 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 Icon(
                                     Icons.Filled.KeyboardArrowUp,
                                     contentDescription = if (id == "topbar")
-                                        "Move ${sectionTitle(id)} to top"
-                                    else "Move ${sectionTitle(id)} up"
+                                        stringResource(R.string.editui_move_to_top, sectionLabel)
+                                    else stringResource(R.string.editui_move_up, sectionLabel)
                                 )
                             }
                             IconButton(
@@ -144,59 +149,66 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 Icon(
                                     Icons.Filled.KeyboardArrowDown,
                                     contentDescription = if (id == "topbar")
-                                        "Move ${sectionTitle(id)} to bottom"
-                                    else "Move ${sectionTitle(id)} down"
+                                        stringResource(R.string.editui_move_to_bottom, sectionLabel)
+                                    else stringResource(R.string.editui_move_down, sectionLabel)
                                 )
                             }
                         }
 
                         if (id == "tools") {
-                            settingRow("Tool description") {
-                                listOf("top" to "Top", "bottom" to "Bottom", "hide" to "Hide")
-                                    .forEach { (value, label) ->
-                                        FilterChip(
-                                            selected = s.toolDescPos == value,
-                                            onClick = { vm.setToolDescPos(value) },
-                                            label = { Text(label) }
-                                        )
-                                    }
+                            settingRow(R.string.editui_tool_desc) {
+                                listOf(
+                                    "top" to R.string.top,
+                                    "bottom" to R.string.bottom,
+                                    "hide" to R.string.hide
+                                ).forEach { (value, labelRes) ->
+                                    FilterChip(
+                                        selected = s.toolDescPos == value,
+                                        onClick = { vm.setToolDescPos(value) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
                             }
                             Text(
-                                "Hint text, e.g. \"DNS lookup - pick record type - hold Dig to change server\"",
+                                stringResource(R.string.editui_tool_desc_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow("Tool extra") {
-                                listOf("top" to "Top", "bottom" to "Bottom")
-                                    .forEach { (value, label) ->
-                                        FilterChip(
-                                            selected = s.toolExtraPos == value,
-                                            onClick = { vm.setToolExtraPos(value) },
-                                            label = { Text(label) }
-                                        )
-                                    }
+                            settingRow(R.string.editui_tool_extra) {
+                                listOf(
+                                    "top" to R.string.top,
+                                    "bottom" to R.string.bottom
+                                ).forEach { (value, labelRes) ->
+                                    FilterChip(
+                                        selected = s.toolExtraPos == value,
+                                        onClick = { vm.setToolExtraPos(value) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
                             }
                             Text(
-                                "WiFi tabs (Band/Channel/Security/Display), DIG record types - stays next to the tool row",
+                                stringResource(R.string.editui_tool_extra_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow("Tool extra header") {
-                                listOf("top" to "Top", "bottom" to "Bottom")
-                                    .forEach { (value, label) ->
-                                        FilterChip(
-                                            selected = s.toolExtraHeader == value,
-                                            onClick = { vm.setToolExtraHeader(value) },
-                                            label = { Text(label) }
-                                        )
-                                    }
+                            settingRow(R.string.editui_tool_extra_header) {
+                                listOf(
+                                    "top" to R.string.top,
+                                    "bottom" to R.string.bottom
+                                ).forEach { (value, labelRes) ->
+                                    FilterChip(
+                                        selected = s.toolExtraHeader == value,
+                                        onClick = { vm.setToolExtraHeader(value) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
                             }
                             Text(
-                                "Inside the card: DIG \"Record type / DNS server\" row, WiFi Band/Channel tabs",
+                                stringResource(R.string.editui_tool_extra_header_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow("Grid rows") {
+                            settingRow(R.string.editui_grid_rows) {
                                 FilterChip(
                                     selected = s.toolGridRows == 1,
                                     onClick = { vm.setToolGridRows(1) },
@@ -209,23 +221,23 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 )
                             }
                             Text(
-                                "1 = one row, swipe for the next 5 tools · 2 = classic two-row split",
+                                stringResource(R.string.editui_grid_rows_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         if (id == "terminal") {
-                            settingRow("Toolbar (Run · font · Clear)") {
+                            settingRow(R.string.editui_toolbar_label) {
                                 FilterChip(
                                     selected = s.runRowTop,
                                     onClick = { vm.setRunRowTop(true) },
-                                    label = { Text("Top") }
+                                    label = { Text(stringResource(R.string.top)) }
                                 )
                                 FilterChip(
                                     selected = !s.runRowTop,
                                     onClick = { vm.setRunRowTop(false) },
-                                    label = { Text("Bottom") }
+                                    label = { Text(stringResource(R.string.bottom)) }
                                 )
                             }
                         }
@@ -251,7 +263,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Default ↓", maxLines = 1)
+                    Text(stringResource(R.string.editui_default_down), maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = {
@@ -260,7 +272,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("View")
+                    Text(stringResource(R.string.view))
                 }
                 OutlinedButton(
                     onClick = {
@@ -274,7 +286,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Default")
+                    Text(stringResource(R.string.defaults))
                 }
             }
         }
@@ -282,14 +294,14 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
 }
 
 @Composable
-private fun settingRow(label: String, chips: @Composable () -> Unit) {
+private fun settingRow(labelRes: Int, chips: @Composable () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            label,
+            stringResource(labelRes),
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )

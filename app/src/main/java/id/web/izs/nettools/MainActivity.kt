@@ -1,6 +1,10 @@
 package id.web.izs.nettools
 
 import android.app.Activity
+import android.content.ContextWrapper
+import android.content.res.AssetManager
+import android.content.res.Configuration
+import android.content.res.Resources
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -19,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
@@ -34,6 +39,7 @@ import id.web.izs.nettools.ui.NetToolsViewModel
 import id.web.izs.nettools.ui.SettingsScreen
 import id.web.izs.nettools.ui.baseScheme
 import id.web.izs.nettools.ui.withOverrides
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -44,6 +50,36 @@ class MainActivity : ComponentActivity() {
         setContent {
             val context = LocalContext.current
             val uiState by vm.state.collectAsStateWithLifecycle()
+            // UI language: "system" follows the device, "en"/"in" pin it.
+            // Only the UI moves - terminal output stays English (it mirrors
+            // dig/CLI), so no Resources.getString is used from the runners.
+            val sysConfig = LocalConfiguration.current
+            val lang = uiState.settings.language
+            val localizedConfig = remember(sysConfig, lang) {
+                when (lang) {
+                    "en" -> if (sysConfig.locales[0].language == "en") sysConfig
+                            else Configuration(sysConfig).apply { setLocale(Locale.ENGLISH) }
+                    "in" -> if (sysConfig.locales[0].language == "in") sysConfig
+                            else Configuration(sysConfig).apply { setLocale(Locale("id")) }
+                    else -> sysConfig
+                }
+            }
+            val localizedContext = remember(localizedConfig, context) {
+                if (localizedConfig === sysConfig) context
+                else {
+                    // createConfigurationContext() hands back a detached
+                    // ContextImpl, not a ContextWrapper: activity-compose
+                    // resolves owners (ActivityResultRegistry, back dispatcher)
+                    // by unwrapping LocalContext to the Activity, so it crashed
+                    // the permission launcher. Wrap the Activity itself and swap
+                    // only its Resources/Configuration.
+                    val res = context.createConfigurationContext(localizedConfig).resources
+                    object : ContextWrapper(context) {
+                        override fun getResources(): Resources = res
+                        override fun getAssets(): AssetManager = res.assets
+                    }
+                }
+            }
             val scheme = baseScheme(uiState.settings.theme)
                 .withOverrides(uiState.settings.customColors)
             SideEffect {
@@ -57,6 +93,10 @@ class MainActivity : ComponentActivity() {
                 LocalViewConfiguration provides object : ViewConfiguration by viewConfig {
                     override val longPressTimeoutMillis: Long = 350L
                 }
+            ) {
+            CompositionLocalProvider(
+                LocalConfiguration provides localizedConfig,
+                LocalContext provides localizedContext
             ) {
             MaterialTheme(colorScheme = scheme) {
                 // Don't draw real content until DataStore has delivered the saved
@@ -88,7 +128,7 @@ class MainActivity : ComponentActivity() {
                             (context as? Activity)?.finish()
                         } else {
                             lastBack = now
-                            Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, localizedContext.getString(R.string.press_back_again), Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -112,6 +152,7 @@ class MainActivity : ComponentActivity() {
                     else -> HomeScreen(vm, onOpenSettings = { push("settings") }, onOpenHosts = { push("hosts") }, onOpenEditUi = { push("editui") })
                 }
                 }
+            }
             }
             }
         }

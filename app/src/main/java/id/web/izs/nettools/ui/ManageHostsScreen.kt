@@ -40,11 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import id.web.izs.nettools.R
 import id.web.izs.nettools.data.SettingsRepository
 import id.web.izs.nettools.model.SavedHost
 import id.web.izs.nettools.model.SavedSort
@@ -73,10 +75,10 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Saved (${state.saved.size})") },
+                title = { Text(stringResource(R.string.hosts_title, state.saved.size)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -92,7 +94,7 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
         ) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it },
-                label = { Text("Search...") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.search)) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
@@ -102,12 +104,14 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "${shown.size} shown",
+                    stringResource(R.string.hosts_shown, shown.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Box {
-                    TextButton(onClick = { sortMenu = true }) { Text("Sort: ${sort.label}") }
+                    TextButton(onClick = { sortMenu = true }) {
+                        Text(stringResource(R.string.hosts_sort_prefix, sort.label))
+                    }
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         SavedSort.entries.forEach { mode ->
                             DropdownMenuItem(
@@ -130,13 +134,13 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
                                 Text(h.host, style = MaterialTheme.typography.bodySmall, fontFamily = TermMono)
                             }
                             IconButton(onClick = { onPick(h.host) }) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = "Use")
+                                Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(R.string.use))
                             }
                             IconButton(onClick = { editing = h; editLabel = h.label }) {
-                                Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                                Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit))
                             }
                             IconButton(onClick = { scope.launch { repo.deleteSaved(h.id) } }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete))
                             }
                         }
                     }
@@ -148,7 +152,7 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
     editing?.let { item ->
         AlertDialog(
             onDismissRequest = { editing = null },
-            title = { Text("Edit label") },
+            title = { Text(stringResource(R.string.hosts_edit_label)) },
             text = {
                 OutlinedTextField(
                     value = editLabel, onValueChange = { editLabel = it },
@@ -161,10 +165,10 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
                 TextButton(onClick = {
                     scope.launch { repo.updateSaved(item.copy(label = editLabel.ifBlank { item.host })) }
                     editing = null
-                }) { Text("Save") }
+                }) { Text(stringResource(R.string.save)) }
             },
             dismissButton = {
-                TextButton(onClick = { editing = null }) { Text("Cancel") }
+                TextButton(onClick = { editing = null }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }

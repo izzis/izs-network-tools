@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,12 +61,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import id.web.izs.nettools.R
 import id.web.izs.nettools.data.SettingsRepository
 import id.web.izs.nettools.model.AppSettings
 import id.web.izs.nettools.model.DnsPresets
@@ -141,7 +145,7 @@ private fun ServerDropdown(
             singleLine = true,
             trailingIcon = {
                 IconButton(onClick = { expanded = true }) {
-                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose $label preset")
+                    Icon(Icons.Filled.ArrowDropDown, contentDescription = stringResource(R.string.choose_preset, label))
                 }
             },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
@@ -258,7 +262,10 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
     val scope = rememberCoroutineScope()
     var s by remember(state.settings) { mutableStateOf(state.settings) }
     var dirty by remember { mutableStateOf(false) }
-    val tabs = listOf("Servers", "Scan", "Tools", "General")
+    val tabs = listOf(
+        stringResource(R.string.tab_servers), stringResource(R.string.tab_scan),
+        stringResource(R.string.tab_tools), stringResource(R.string.tab_general)
+    )
     val pagerState = rememberPagerState(initialPage = initialTab) { tabs.size }
     // Report the visible tab so a sub-screen (Edit UI, Custom Colors) can bring
     // you back to where you left instead of resetting to the first tab.
@@ -287,7 +294,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = {
                         // Flush any pending edit immediately on back.
@@ -295,7 +302,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                         focusManager.clearFocus()
                         onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
@@ -304,7 +311,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                         focusManager.clearFocus()
                         onOpenAbout()
                     }) {
-                        Icon(Icons.Outlined.Info, contentDescription = "About")
+                        Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.about))
                     }
                 }
             )
@@ -365,31 +372,31 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
 private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
     val focusManager = LocalFocusManager.current
     ServerDropdown(
-        label = "DNS server (Dig)",
+        label = stringResource(R.string.set_dns_server),
         value = s.dnsServer,
         presets = DnsPresets.all,
         onChange = { update(s.copy(dnsServer = it)) }
     )
     ServerDropdown(
-        label = "IP lookup server (IP Info)",
+        label = stringResource(R.string.set_ip_lookup),
         value = s.ipLookupBase,
         presets = IpInfoPresets.lookup,
         onChange = { update(s.copy(ipLookupBase = it)) }
     )
     ServerDropdown(
-        label = "My IP server (My IP)",
+        label = stringResource(R.string.set_myip_server),
         value = s.myIpBase,
         presets = IpInfoPresets.myIp,
         onChange = { update(s.copy(myIpBase = it)) }
     )
     ServerDropdown(
-        label = "RDAP server (modern Whois)",
+        label = stringResource(R.string.set_rdap_server),
         value = s.rdapBase,
         presets = RdapPresets.all,
         onChange = { update(s.copy(rdapBase = it)) }
     )
     ServerDropdown(
-        label = "WHOIS server (port 43)",
+        label = stringResource(R.string.set_whois_server),
         value = s.whoisServer,
         presets = WhoisPresets.all,
         onChange = { update(s.copy(whoisServer = it)) }
@@ -397,7 +404,7 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
     NumberField(
         value = s.whoisPort,
         range = 1..65535,
-        label = "WHOIS port (default 43)",
+        label = stringResource(R.string.set_whois_port),
         onCommit = { update(s.copy(whoisPort = it)) }
     )
     var tokenText by remember(s.globalpingToken) { mutableStateOf(s.globalpingToken) }
@@ -415,8 +422,8 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
     OutlinedTextField(
         value = tokenText,
         onValueChange = { tokenText = it },
-        label = { Text("Globalping token (Global Ping/Trace)") },
-        supportingText = { Text("Empty = anonymous (250 tests/hour)") },
+        label = { Text(stringResource(R.string.set_gping_token)) },
+        supportingText = { Text(stringResource(R.string.set_gping_token_hint)) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { syncToken(); focusManager.clearFocus() }),
@@ -426,8 +433,8 @@ private fun ServersTab(s: AppSettings, update: (AppSettings) -> Unit) {
         OutlinedTextField(
             value = ipinfoText,
             onValueChange = { ipinfoText = it },
-            label = { Text("IPinfo token (IP Info / My IP)") },
-            supportingText = { Text("Empty = anonymous (1000 lookups/day shared)") },
+            label = { Text(stringResource(R.string.set_ipinfo_token)) },
+            supportingText = { Text(stringResource(R.string.set_ipinfo_token_hint)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { syncIpinfoToken(); focusManager.clearFocus() }),
@@ -445,31 +452,31 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
     NumberField(
         value = s.maxHops,
         range = 1..64,
-        label = "Trace: max hops (1-64)",
+        label = stringResource(R.string.set_max_hops),
         onCommit = { update(s.copy(maxHops = it)) }
     )
     NumberField(
         value = s.timeoutMs,
         range = 500..30000,
-        label = "Network timeout ms (500-30000)",
+        label = stringResource(R.string.set_timeout),
         onCommit = { update(s.copy(timeoutMs = it)) }
     )
     NumberField(
         value = s.maxParallel,
         range = 8..256,
-        label = "IP Scan: parallel probes (8-256)",
+        label = stringResource(R.string.set_parallel),
         onCommit = { update(s.copy(maxParallel = it)) }
     )
     NumberField(
         value = s.pingCount,
         range = 0..1000,
-        label = "Ping count (0 = nonstop)",
+        label = stringResource(R.string.set_ping_count),
         onCommit = { update(s.copy(pingCount = it)) }
     )
     NumberField(
         value = s.loopPingCount,
         range = 4..100,
-        label = "Loop: gateway ping count (4-100, ~1/sec)",
+        label = stringResource(R.string.set_loop_count),
         onCommit = { update(s.copy(loopPingCount = it)) }
     )
             var portsText by remember(s.portList) { mutableStateOf(s.portList) }
@@ -483,7 +490,7 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
                 onValueChange = { v ->
                     portsText = v.filter { c -> c.isDigit() || c in ",; \n\t-" }
                 },
-                label = { Text("Ports: port list (e.g. 22,80,8000-8010)") },
+                label = { Text(stringResource(R.string.set_ports)) },
                 minLines = 3,
                 maxLines = 5,
                 modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) syncPorts() },
@@ -495,7 +502,7 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Show offline hosts in IP Scan (RTO)")
+        Text(stringResource(R.string.set_scan_offline), modifier = Modifier.weight(1f))
         Switch(checked = s.scanShowOffline, onCheckedChange = { update(s.copy(scanShowOffline = it)) })
     }
     Row(
@@ -503,7 +510,7 @@ private fun ScanTab(s: AppSettings, update: (AppSettings) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Show MAC in IP Scan UP lines")
+        Text(stringResource(R.string.set_scan_mac), modifier = Modifier.weight(1f))
         Switch(checked = s.scanShowMac, onCheckedChange = { update(s.copy(scanShowMac = it)) })
     }
 }
@@ -519,7 +526,7 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
     val enabledCount = ordered.count { it.name !in s.disabledTools }
     // Grid rows (1 vs 2) live in Edit UI — it's layout, not tool config.
     Text(
-        "Pick which tools show on Home and in what order. At least one must stay on.",
+        stringResource(R.string.set_tools_help),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -545,7 +552,7 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
                 },
                 enabled = i > 0
             ) {
-                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move ${t.title} up")
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.move_up, t.title))
             }
             IconButton(
                 onClick = {
@@ -556,7 +563,7 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
                 },
                 enabled = i < ordered.lastIndex
             ) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move ${t.title} down")
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.move_down, t.title))
             }
             Switch(
                 checked = enabled,
@@ -588,11 +595,12 @@ private fun ToolsTab(s: AppSettings, update: (AppSettings) -> Unit) {
                 )
             }
         ) {
-            Text("Reset tool order")
+            Text(stringResource(R.string.reset_tool_order))
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColors: () -> Unit, onOpenEditUi: () -> Unit) {
     @Composable
@@ -604,11 +612,26 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
             modifier = Modifier.padding(top = 4.dp)
         )
     }
-    section("Appearance")
+    section(stringResource(R.string.sec_language))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(
+            "system" to stringResource(R.string.lang_system),
+            "en" to stringResource(R.string.lang_en),
+            "in" to stringResource(R.string.lang_id)
+        ).forEach { (code, label) ->
+            FilterChip(
+                selected = s.language == code,
+                onClick = { update(s.copy(language = code)) },
+                label = { Text(label) }
+            )
+        }
+    }
+
+    section(stringResource(R.string.sec_appearance))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.weight(1f)) {
             ServerDropdown(
-                label = "App theme",
+                label = stringResource(R.string.set_theme),
                 value = s.theme,
                 presets = AppTheme.presets,
                 onChange = { update(s.copy(theme = it)) },
@@ -616,7 +639,7 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
             )
         }
         IconButton(onClick = onOpenColors) {
-            Icon(Icons.Filled.Palette, contentDescription = "Customize colors")
+            Icon(Icons.Filled.Palette, contentDescription = stringResource(R.string.customize_colors))
         }
     }
     Row(
@@ -624,7 +647,7 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Colored output")
+        Text(stringResource(R.string.set_colored), modifier = Modifier.weight(1f))
         Switch(checked = s.coloredOutput, onCheckedChange = { update(s.copy(coloredOutput = it)) })
     }
     Row(
@@ -632,19 +655,19 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Home layout (section order, Run row)")
+        Text(stringResource(R.string.set_home_layout), modifier = Modifier.weight(1f))
         TextButton(onClick = onOpenEditUi) {
-            Text("Edit UI")
+            Text(stringResource(R.string.edit_ui))
         }
     }
 
-    section("Run")
+    section(stringResource(R.string.sec_run))
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Auto-run when picking a saved target")
+        Text(stringResource(R.string.set_autorun_pick), modifier = Modifier.weight(1f))
         Switch(checked = s.autoRunOnPick, onCheckedChange = { update(s.copy(autoRunOnPick = it)) })
     }
     Row(
@@ -652,7 +675,7 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Auto-run when picking a tool")
+        Text(stringResource(R.string.set_autorun_tool), modifier = Modifier.weight(1f))
         Switch(checked = s.autoRunOnTool, onCheckedChange = { update(s.copy(autoRunOnTool = it)) })
     }
     Row(
@@ -660,15 +683,15 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Clear output on run or tool switch")
+        Text(stringResource(R.string.set_autoclear), modifier = Modifier.weight(1f))
         Switch(checked = s.autoClearOutput, onCheckedChange = { update(s.copy(autoClearOutput = it)) })
     }
 
-    section("History")
+    section(stringResource(R.string.sec_history))
     NumberField(
         value = s.maxRecent,
         range = 0..50,
-        label = "Max recent targets (0 = off)",
+        label = stringResource(R.string.set_max_recent),
         onCommit = { update(s.copy(maxRecent = it)) }
     )
     Row(
@@ -676,7 +699,7 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Hide recents already in Saved")
+        Text(stringResource(R.string.set_hide_dupes), modifier = Modifier.weight(1f))
         Switch(checked = s.hideRecentDupes, onCheckedChange = { update(s.copy(hideRecentDupes = it)) })
     }
 }
