@@ -162,7 +162,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                     }
                             }
                             Text(
-                                "Hint text, e.g. \"Live APs every 30s - type SSID/MAC above to filter\"",
+                                "Hint text, e.g. \"DNS lookup - pick record type - hold Dig to change server\"",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

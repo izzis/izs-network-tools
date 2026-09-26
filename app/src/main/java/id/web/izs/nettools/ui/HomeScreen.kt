@@ -805,11 +805,30 @@ fun HomeScreen(
             var scopeTool by remember { mutableStateOf<Tool?>(null) }
             var loopModeTool by remember { mutableStateOf<Tool?>(null) }
             // --- Tool descriptions (hint texts): Edit UI picks top/bottom/hide.
+            // Each hint names the tool's job first, then the usage shortcut.
             val toolHints: @Composable ColumnScope.() -> Unit = {
+            if (state.tool == Tool.PING) {
+                Text(
+                    "ICMP ping - hold Ping for Local / Global engine",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.DIG) {
+                Text(
+                    "DNS lookup - pick record type - hold Dig to change server",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (state.tool == Tool.WHOIS) {
+                Text(
+                    "Domain / IP registration - RDAP + whois port 43 - hold Whois to change server",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             if (state.tool == Tool.TRACE) {
                 Text(
-                    (if (state.traceGlobal) "Globalping x${state.globalProbes} - hold Trace to change"
-                    else "Max ${state.settings.maxHops} hops (Settings) - hold Trace for Global"),
+                    (if (state.traceGlobal) "Traceroute - Globalping x${state.globalProbes} - hold Trace to change"
+                    else "Traceroute - max ${state.settings.maxHops} hops (Settings) - hold Trace for Global"),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -825,13 +844,13 @@ fun HomeScreen(
             }
             if (state.tool == Tool.CERT) {
                 Text(
-                    "Port 443 - type host:port for another port",
+                    "TLS certificate - port 443, host:port for another",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.MYIP) {
                 Text(
-                    "This device's public IP - target field ignored",
+                    "This device's public IP - hold My IP to change provider - target field ignored",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -843,31 +862,31 @@ fun HomeScreen(
             }
             if (state.tool == Tool.IPINFO) {
                 Text(
-                    "Lookup any IP or domain - server from Settings",
+                    "IP / domain lookup - geolocation, ASN - hold IP Info to change provider",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.PORTS) {
                 Text(
-                    "Port list from Settings - or host:port for one port",
+                    "Port scanner - list from Settings, host:port for one port - hold Ports for source + presets",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.HEADERS) {
                 Text(
-                    "URL or host (path included, https assumed)",
+                    "HTTP response headers - URL or host (path included, https assumed)",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.SWEEP) {
                 Text(
-                    "Ping scan - range autofills above (e.g. 10.0.0.0/24)",
+                    "Ping sweep - range goes in the target field (e.g. 10.0.0.0/24)",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
             if (state.tool == Tool.WIFIANALYZER) {
                 Text(
-                    "Live APs every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s - type SSID/MAC above to filter",
+                    "WiFi AP scanner - live APs every ${WifiAnalyzerRunner.REFRESH_MS / 1000}s, SSID/MAC filter in the target field",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -882,7 +901,7 @@ fun HomeScreen(
                     ) {
                         Text("Record type", style = MaterialTheme.typography.labelLarge)
                         Text(
-                            "DNS server: ${state.settings.dnsServer} - change in Settings",
+                            "DNS server: ${state.settings.dnsServer} - hold Dig to change",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
