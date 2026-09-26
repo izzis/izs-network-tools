@@ -106,7 +106,9 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -116,6 +118,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -475,7 +478,11 @@ fun HomeScreen(
     // First-visible key from the previous layout pass (still valid when this
     // composition introduces a new displayKeyed). Re-sort keeps the viewport
     // on that AP instead of jumping to the new index-0 row.
-    val preAnchorKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key
+    // derivedStateOf: layoutInfo flips on every layout pass — reading it
+    // straight in composition would recompose the whole screen each frame.
+    val preAnchorKey by remember {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key }
+    }
     LaunchedEffect(displayKeyed) {
         if (state.tool != Tool.WIFIANALYZER || state.wifiCycles == 0) return@LaunchedEffect
         val key = preAnchorKey ?: return@LaunchedEffect
@@ -500,12 +507,15 @@ fun HomeScreen(
     val wifiPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
-        // getScanResults() needs FINE_LOCATION on every API (OEMs ignore
-        // neverForLocation + NEARBY alone); NEARBY is still required on 33+.
-        val fine = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        // getScanResults() needs a location permission on every API (OEMs
+        // ignore neverForLocation + NEARBY alone); NEARBY is still required on
+        // 33+. Android 12+ lets the user answer with approximate-only, so
+        // COARSE counts as granted too — scans never need street precision.
+        val loc = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         val nearby = Build.VERSION.SDK_INT < 33 ||
             grants[Manifest.permission.NEARBY_WIFI_DEVICES] == true
-        if (fine && nearby) {
+        if (loc && nearby) {
             if (!isLocationEnabled(context)) {
                 promptLocationSettings(context, vm, R.string.home_location_off)
             } else {
@@ -541,7 +551,7 @@ fun HomeScreen(
     }
     // Countdown to the next WiFi scan cycle (ticks locally; lastRefreshAt
     // resets it after every completed cycle).
-    var wifiCountdown by remember { mutableStateOf(0) }
+    var wifiCountdown by remember { mutableIntStateOf(0) }
     LaunchedEffect(state.lastRefreshAt, state.running, state.tool) {
         if (state.tool != Tool.WIFIANALYZER || !state.running || state.lastRefreshAt == 0L) {
             wifiCountdown = 0
@@ -925,8 +935,9 @@ fun HomeScreen(
                 Text(
                     (if (state.traceGlobal)
                         stringResource(R.string.hint_trace_global, state.globalProbes)
-                    else stringResource(
-                        R.string.hint_trace_local, state.settings.maxHops
+                    else pluralStringResource(
+                        R.plurals.hint_trace_local, state.settings.maxHops,
+                        state.settings.maxHops
                     )),
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -1042,7 +1053,7 @@ fun HomeScreen(
                 // (rarely changed); Channel always sorts by channel no.
                 // SSIDs stay free text in the target bar (names are too
                 // random to enumerate).
-                var wifiFilterDim by remember { mutableStateOf(0) }
+                var wifiFilterDim by remember { mutableIntStateOf(0) }
                 val wifiHeader: @Composable () -> Unit = {
                 PrimaryTabRow(
                     selectedTabIndex = wifiFilterDim,
@@ -1760,14 +1771,17 @@ private fun globalSub(probes: Int, country: String): String =
     else stringResource(R.string.home_global_x_country, probes, country)
 
 /**
- * Runtime grant check for the WiFi Analyzer scan. FINE_LOCATION is required
- * on every API (several OEMs still reject getScanResults with NEARBY alone);
- * NEARBY is also required on 33+ per the platform contract.
+ * Runtime grant check for the WiFi Analyzer scan. A location permission is
+ * required on every API (several OEMs still reject getScanResults with NEARBY
+ * alone) — FINE or COARSE, since Android 12 lets the user grant approximate
+ * only; NEARBY is also required on 33+ per the platform contract.
  */
 private fun hasWifiScanPermission(context: Context): Boolean {
-    val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+    val loc = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
-    if (!fine) return false
+    if (!loc) return false
     if (Build.VERSION.SDK_INT < 33) return true
     return ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) ==
         PackageManager.PERMISSION_GRANTED
@@ -1887,7 +1901,7 @@ private fun ScopePickerDialog(
     onDismiss: () -> Unit
 ) {
     var global by remember { mutableStateOf(isGlobal) }
-    var n by remember { mutableStateOf(probes) }
+    var n by remember { mutableIntStateOf(probes) }
     var c by remember { mutableStateOf(country) }
     var custom by remember { mutableStateOf(country) }
     var draftList by remember(portList) { mutableStateOf(portList) }

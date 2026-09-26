@@ -51,7 +51,7 @@ object DnsRunner {
                 try {
                     val addrs = InetAddress.getAllByName(host)
                     emit(";; (system resolver fallback)")
-                    addrs.forEach { emit(answerRow("$host.", "-", typeName, it.hostAddress)) }
+                    addrs.forEach { emit(answerRow("$host.", "-", typeName, it.hostAddress.orEmpty())) }
                 } catch (e: Exception) {
                     emit(";; NXDOMAIN / not found: ${e.message}")
                 }

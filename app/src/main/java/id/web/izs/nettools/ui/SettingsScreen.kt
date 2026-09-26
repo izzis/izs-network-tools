@@ -215,11 +215,11 @@ private fun NumberField(
  * the page content underneath.
  */
 @Composable
-private fun edgeDeadZone(): Modifier {
+private fun Modifier.edgeDeadZone(): Modifier {
     val density = LocalDensity.current
     val dir = LocalLayoutDirection.current
     val deadPx = with(density) { WindowInsets.systemGestures.getLeft(density, dir).toFloat() }
-    return Modifier.pointerInput(deadPx) {
+    return pointerInput(deadPx) {
         if (deadPx <= 0f) return@pointerInput
         val slop = viewConfiguration.touchSlop
         awaitEachGesture {
@@ -340,7 +340,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                 // Neighbor pages stay composed so swiping never pays
                 // first-composition cost mid-gesture (4 light pages, cheap).
                 beyondViewportPageCount = 1,
-                modifier = Modifier.weight(1f).then(edgeDeadZone())
+                modifier = Modifier.weight(1f).edgeDeadZone()
             ) { page ->
                 Column(
                     modifier = Modifier

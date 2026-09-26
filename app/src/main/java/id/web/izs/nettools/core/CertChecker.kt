@@ -69,7 +69,14 @@ object CertChecker {
         else -> listOf(Mode.IMPLICIT)
     }
 
-    /** Trust manager that accepts everything but records the presented chain. */
+    /** Trust manager that accepts everything but records the presented chain.
+     *
+     *  Suppression is deliberate, not lazy: the cert *inspector* must print
+     *  the chain a server actually presents, expired/self-signed included —
+     *  that IS the feature. Scoped to this probe socket only; app traffic
+     *  stays on the platform's default trust manager.
+     */
+    @Suppress("CustomX509TrustManager", "TrustAllX509TrustManager")
     private class CaptureTM : X509TrustManager {
         var chain: Array<X509Certificate> = emptyArray()
         override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}

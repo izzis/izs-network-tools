@@ -33,7 +33,7 @@ android {
     defaultConfig {
         applicationId = "id.web.izs.nettools"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 6
         versionName = "1.1.3"
     }
@@ -59,6 +59,14 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    // In-app language switcher changes the locale at runtime: keep every
+    // locale in the base module so the system never needs a Play Core
+    // on-demand download for the other language.
+    bundle {
+        language {
+            enableSplit = false
+        }
     }
     packaging {
         resources {

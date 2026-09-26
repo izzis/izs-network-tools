@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,7 +61,7 @@ class MainActivity : ComponentActivity() {
                     "en" -> if (sysConfig.locales[0].language == "en") sysConfig
                             else Configuration(sysConfig).apply { setLocale(Locale.ENGLISH) }
                     "in" -> if (sysConfig.locales[0].language == "in") sysConfig
-                            else Configuration(sysConfig).apply { setLocale(Locale("id")) }
+                            else Configuration(sysConfig).apply { setLocale(Locale.forLanguageTag("id")) }
                     else -> sysConfig
                 }
             }
@@ -111,7 +112,7 @@ class MainActivity : ComponentActivity() {
                 var stack by remember { mutableStateOf(listOf("home")) }
                 // Settings remembers its last tab: Edit UI / Custom Colors live in
                 // General, so coming back must not reset the pager to the first tab.
-                var settingsTab by remember { mutableStateOf(0) }
+                var settingsTab by remember { mutableIntStateOf(0) }
                 var lastBack by remember { mutableLongStateOf(0L) }
                 fun back() {
                     if (stack.size > 1) stack = stack.dropLast(1)

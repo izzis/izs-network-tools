@@ -96,7 +96,9 @@
     <string name="hint_ports">Pemindai port - daftar dari Pengaturan, host:port untuk satu port - tahan Ports untuk sumber + preset</string>
     <string name="hint_sweep">Ping sweep - rentang di kolom target (mis. 10.0.0.0/24)</string>
     <string name="hint_trace_global">Traceroute - Globalping x%1$d - tahan Trace untuk ganti</string>
-    <string name="hint_trace_local">Traceroute - maks %1$d hop (Pengaturan) - tahan Trace untuk Global</string>
+    <plurals name="hint_trace_local">
+        <item quantity="other">Traceroute - maks %1$d hop (Pengaturan) - tahan Trace untuk Global</item>
+    </plurals>
     <string name="hint_whois">Registrasi domain/IP - RDAP + whois port 43 - tahan Whois untuk ganti server</string>
     <string name="hint_wifi">Pemindai AP WiFi - AP langsung tiap %1$ds, filter SSID/MAC di kolom target</string>
     <string name="home_bigger_text">Teks lebih besar</string>
@@ -127,7 +129,9 @@
     <string name="home_sort">Urutkan</string>
     <string name="home_stop">Berhenti</string>
     <string name="hosts_edit_label">Ubah label</string>
-    <string name="hosts_shown">Menampilkan %1$d</string>
+    <plurals name="hosts_shown">
+        <item quantity="other">Menampilkan %1$d</item>
+    </plurals>
     <string name="hosts_sort_prefix">Urutkan: %1$s</string>
     <string name="hosts_title">Tersimpan (%1$d)</string>
     <string name="lang_en">English</string>
@@ -139,7 +143,7 @@
     <string name="press_back_again">Tekan kembali lagi untuk keluar</string>
     <string name="reset_tool_order">Atur ulang urutan alat</string>
     <string name="save">Simpan</string>
-    <string name="search">Cari...</string>
+    <string name="search">Cari…</string>
     <string name="sec_appearance">Tampilan</string>
     <string name="sec_history">Riwayat</string>
     <string name="sec_language">Bahasa</string>
@@ -156,18 +160,18 @@
     <string name="set_ip_lookup">Server lookup IP (IP Info)</string>
     <string name="set_ipinfo_token">Token IPinfo (IP Info / My IP)</string>
     <string name="set_ipinfo_token_hint">Kosong = anonim (1000 lookup/hari, bersama)</string>
-    <string name="set_loop_count">Loop: jumlah ping gateway (4-100, ~1/dtk)</string>
-    <string name="set_max_hops">Trace: maks hop (1-64)</string>
+    <string name="set_loop_count">Loop: jumlah ping gateway (4–100, ~1/dtk)</string>
+    <string name="set_max_hops">Trace: maks hop (1–64)</string>
     <string name="set_max_recent">Maks target terbaru (0 = mati)</string>
     <string name="set_myip_server">Server IP saya (My IP)</string>
-    <string name="set_parallel">IP Scan: probe paralel (8-256)</string>
+    <string name="set_parallel">IP Scan: probe paralel (8–256)</string>
     <string name="set_ping_count">Jumlah ping (0 = tanpa henti)</string>
-    <string name="set_ports">Ports: daftar port (mis. 22,80,8000-8010)</string>
+    <string name="set_ports">Ports: daftar port (mis. 22,80,8000–8010)</string>
     <string name="set_rdap_server">Server RDAP (Whois modern)</string>
     <string name="set_scan_mac">Tampilkan MAC di baris UP IP Scan</string>
     <string name="set_scan_offline">Tampilkan host offline di IP Scan (RTO)</string>
     <string name="set_theme">Tema aplikasi</string>
-    <string name="set_timeout">Timeout jaringan ms (500-30000)</string>
+    <string name="set_timeout">Timeout jaringan ms (500–30000)</string>
     <string name="set_tools_help">Pilih alat yang tampil di Home dan urutannya. Setidaknya satu harus tetap aktif.</string>
     <string name="set_whois_port">Port WHOIS (bawaan 43)</string>
     <string name="set_whois_server">Server WHOIS (port 43)</string>

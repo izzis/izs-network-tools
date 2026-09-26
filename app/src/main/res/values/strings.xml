@@ -99,7 +99,10 @@
     <string name="hint_ports">Port scanner - list from Settings, host:port for one port - hold Ports for source + presets</string>
     <string name="hint_sweep">Ping sweep - range goes in the target field (e.g. 10.0.0.0/24)</string>
     <string name="hint_trace_global">Traceroute - Globalping x%1$d - hold Trace to change</string>
-    <string name="hint_trace_local">Traceroute - max %1$d hops (Settings) - hold Trace for Global</string>
+    <plurals name="hint_trace_local">
+        <item quantity="one">Traceroute - max %1$d hop (Settings) - hold Trace for Global</item>
+        <item quantity="other">Traceroute - max %1$d hops (Settings) - hold Trace for Global</item>
+    </plurals>
     <string name="hint_whois">Domain / IP registration - RDAP + whois port 43 - hold Whois to change server</string>
     <string name="hint_wifi">WiFi AP scanner - live APs every %1$ds, SSID/MAC filter in the target field</string>
     <string name="home_bigger_text">Bigger text</string>
@@ -130,7 +133,10 @@
     <string name="home_sort">Sort</string>
     <string name="home_stop">Stop</string>
     <string name="hosts_edit_label">Edit label</string>
-    <string name="hosts_shown">%1$d shown</string>
+    <plurals name="hosts_shown">
+        <item quantity="one">%1$d shown</item>
+        <item quantity="other">%1$d shown</item>
+    </plurals>
     <string name="hosts_sort_prefix">Sort: %1$s</string>
     <string name="hosts_title">Saved (%1$d)</string>
     <string name="lang_en">English</string>
@@ -142,7 +148,7 @@
     <string name="press_back_again">Press back again to exit</string>
     <string name="reset_tool_order">Reset tool order</string>
     <string name="save">Save</string>
-    <string name="search">Search...</string>
+    <string name="search">Search…</string>
     <string name="sec_appearance">Appearance</string>
     <string name="sec_history">History</string>
     <string name="sec_language">Language</string>
@@ -159,18 +165,18 @@
     <string name="set_ip_lookup">IP lookup server (IP Info)</string>
     <string name="set_ipinfo_token">IPinfo token (IP Info / My IP)</string>
     <string name="set_ipinfo_token_hint">Empty = anonymous (1000 lookups/day shared)</string>
-    <string name="set_loop_count">Loop: gateway ping count (4-100, ~1/sec)</string>
-    <string name="set_max_hops">Trace: max hops (1-64)</string>
+    <string name="set_loop_count">Loop: gateway ping count (4–100, ~1/sec)</string>
+    <string name="set_max_hops">Trace: max hops (1–64)</string>
     <string name="set_max_recent">Max recent targets (0 = off)</string>
     <string name="set_myip_server">My IP server (My IP)</string>
-    <string name="set_parallel">IP Scan: parallel probes (8-256)</string>
+    <string name="set_parallel">IP Scan: parallel probes (8–256)</string>
     <string name="set_ping_count">Ping count (0 = nonstop)</string>
-    <string name="set_ports">Ports: port list (e.g. 22,80,8000-8010)</string>
+    <string name="set_ports">Ports: port list (e.g. 22,80,8000–8010)</string>
     <string name="set_rdap_server">RDAP server (modern Whois)</string>
     <string name="set_scan_mac">Show MAC in IP Scan UP lines</string>
     <string name="set_scan_offline">Show offline hosts in IP Scan (RTO)</string>
     <string name="set_theme">App theme</string>
-    <string name="set_timeout">Network timeout ms (500-30000)</string>
+    <string name="set_timeout">Network timeout ms (500–30000)</string>
     <string name="set_tools_help">Pick which tools show on Home and in what order. At least one must stay on.</string>
     <string name="set_whois_port">WHOIS port (default 43)</string>
     <string name="set_whois_server">WHOIS server (port 43)</string>

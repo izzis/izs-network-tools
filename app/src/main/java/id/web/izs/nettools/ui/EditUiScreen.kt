@@ -156,7 +156,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                         }
 
                         if (id == "target") {
-                            settingRow(R.string.editui_saved_list) {
+                            SettingRow(R.string.editui_saved_list) {
                                 listOf(
                                     "top" to R.string.top,
                                     "bottom" to R.string.bottom
@@ -173,7 +173,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow(R.string.editui_saved_list_order) {
+                            SettingRow(R.string.editui_saved_list_order) {
                                 listOf(
                                     "recent" to R.string.editui_recent_first,
                                     "saved" to R.string.editui_saved_first
@@ -193,7 +193,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                         }
 
                         if (id == "tools") {
-                            settingRow(R.string.editui_tool_desc) {
+                            SettingRow(R.string.editui_tool_desc) {
                                 listOf(
                                     "top" to R.string.top,
                                     "bottom" to R.string.bottom,
@@ -211,7 +211,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow(R.string.editui_tool_extra) {
+                            SettingRow(R.string.editui_tool_extra) {
                                 listOf(
                                     "top" to R.string.top,
                                     "bottom" to R.string.bottom
@@ -228,7 +228,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow(R.string.editui_tool_extra_header) {
+                            SettingRow(R.string.editui_tool_extra_header) {
                                 listOf(
                                     "top" to R.string.top,
                                     "bottom" to R.string.bottom
@@ -245,7 +245,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            settingRow(R.string.editui_grid_rows) {
+                            SettingRow(R.string.editui_grid_rows) {
                                 FilterChip(
                                     selected = s.toolGridRows == 1,
                                     onClick = { vm.setToolGridRows(1) },
@@ -265,7 +265,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                         }
 
                         if (id == "terminal") {
-                            settingRow(R.string.editui_toolbar_label) {
+                            SettingRow(R.string.editui_toolbar_label) {
                                 FilterChip(
                                     selected = s.runRowTop,
                                     onClick = { vm.setRunRowTop(true) },
@@ -277,7 +277,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                     label = { Text(stringResource(R.string.bottom)) }
                                 )
                             }
-                            settingRow(R.string.editui_run_pos) {
+                            SettingRow(R.string.editui_run_pos) {
                                 listOf(
                                     "left" to R.string.left,
                                     "right" to R.string.right
@@ -359,7 +359,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
 }
 
 @Composable
-private fun settingRow(labelRes: Int, chips: @Composable () -> Unit) {
+private fun SettingRow(labelRes: Int, chips: @Composable () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),

@@ -1,15 +1,15 @@
 [versions]
 # Verified latest stable Sep 2026
-agp = "9.4.0"
+agp = "9.4.1"
 kotlin = "2.4.20"
 composeBom = "2026.09.00"
 activityCompose = "1.13.0"
-coreKtx = "1.16.0"
-lifecycle = "2.9.2"
+coreKtx = "1.19.1"
+lifecycle = "2.11.0"
 datastore = "1.2.1"
 coroutines = "1.11.0"
 okhttp = "5.5.0"
-serializationJson = "1.9.0"
+serializationJson = "1.11.0"
 dnsjava = "3.6.5"
 junit = "4.13.2"
 
