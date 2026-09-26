@@ -561,6 +561,16 @@ fun HomeScreen(
     // under the gesture pill (Scaffold leaves insets to the bar itself).
     val topBar: @Composable () -> Unit = {
             TopAppBar(
+                // Like empty space elsewhere, the bar's empty area dismisses
+                // the keyboard / target focus and closes the saved list —
+                // taps on the buttons are consumed by them first (matters when
+                // the bar docks at the bottom, under the focused target box).
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures {
+                        focusManager.clearFocus()
+                        if (state.dropExpanded) vm.setDrop(false)
+                    }
+                },
                 title = { Text("izs NetTools") },
                 windowInsets = if (state.settings.topBarBottom) {
                     WindowInsets.navigationBars.union(WindowInsets.ime)
