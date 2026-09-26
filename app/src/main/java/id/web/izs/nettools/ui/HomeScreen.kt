@@ -234,8 +234,31 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
 
 private val kvPattern = Regex("^([A-Za-z][A-Za-z0-9 _.\\-/]{0,40}): (.*)$")
 
+/** Dig answer row from DnsRunner.answerRow (`name 300 IN A 1.2.3.4`). Matched on a
+ *  copy whose NBSP padding became plain spaces — same length, so group ranges still
+ *  index into the original line. */
+private val dnsAnswer = Regex("^(\\S+)\\s+(\\d+|-)\\s+IN\\s+([A-Z]+)\\s(.+)$")
+
 /** MAC line of a WiFi Analyzer AP block (`aa:bb:cc:dd:ee:ff  ch…`). */
 private val wifiMacLine = Regex("^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\\b.*")
+
+/** Raw server text (whois, RDAP, DNS) can carry tabs. Compose has no tab stops:
+ *  '\t' measures zero-width AND is a break point, so the row renders merged
+ *  ("300INA103.26.10.4") and wraps before the value. Expand each tab to spaces
+ *  on 8-cell stops — TermMono is 1 cell per char. */
+private fun String.expandTabs(): String {
+    if ('\t' !in this) return this
+    return lineSequence().joinToString("\n") { row ->
+        buildString {
+            for (ch in row) {
+                // NBSP: padding must not become a break point, or a wrapped row
+                // starts line 2 with leftover spaces.
+                if (ch == '\t') repeat(8 - (length % 8)) { append('\u00A0') }
+                else append(ch)
+            }
+        }
+    }
+}
 
 /**
  * One output line: semantic color + dim key / bright value for "Key: value" lines.
@@ -253,7 +276,8 @@ private fun OutputLine(
     wifiConnBssid: String = ""
 ) {
     // Live-update bookkeeping ("key\ntext") is never shown.
-    val line = GlobalpingRunner.displayOf(line)
+    val raw = GlobalpingRunner.displayOf(line)
+    val line = raw.expandTabs()
     val body: @Composable () -> Unit = {
         when {
             !colored -> Text(
@@ -296,29 +320,58 @@ private fun OutputLine(
                 )
             }
             else -> {
-                val kv = if (!line.contains('\t')) kvPattern.find(line) else null
+                val kv = if (!raw.contains('\t')) kvPattern.find(line) else null
                 // Loop verdict lines keep their full semantic color (whole line green
                 // or red) instead of a dimmed "Key:" prefix — the verdict must pop.
                 val t = line.trimStart()
                 val isVerdict = t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
                     t.startsWith("No loop:") || t.startsWith("STORM DETECTED") ||
                     t.startsWith("Suspected storm") || t.startsWith("No storm:")
-                if (!isVerdict && kv != null && kv.groupValues[2].isNotEmpty() &&
-                    !t.startsWith(";;") && !t.startsWith("==")
-                ) {
-                    Text(
-                        buildAnnotatedString {
-                            withStyle(SpanStyle(color = p.dim)) { append(kv.groupValues[1] + ":") }
-                            append(" ")
-                            withStyle(SpanStyle(color = terminalLineColor(line, p))) {
-                                append(kv.groupValues[2])
-                            }
-                        },
-                        fontFamily = TermMono,
-                        fontSize = fontSize
-                    )
-                } else {
-                    Text(
+                val dns = if (!isVerdict) dnsAnswer.find(line.replace('\u00A0', ' ')) else null
+                when {
+                    // Dig answer row: the domain and the value stay on p.text, only
+                    // the ttl/class gutter dims (a dim domain read as another `;;`
+                    // comment) and the record type carries the family colour — all
+                    // from the palette, so light themes render dark-on-light.
+                    dns != null -> {
+                        val name = dns.groups[1]!!
+                        val type = dns.groups[3]!!
+                        val typeColor = when (type.value) {
+                            "A", "AAAA" -> p.green
+                            "TXT" -> p.amber
+                            else -> p.blue
+                        }
+                        Text(
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = p.text)) {
+                                    append(line.substring(0, name.range.last + 1))
+                                }
+                                withStyle(SpanStyle(color = p.dim)) {
+                                    append(line.substring(name.range.last + 1, type.range.first))
+                                }
+                                withStyle(SpanStyle(color = typeColor)) { append(type.value) }
+                                withStyle(SpanStyle(color = p.text)) {
+                                    append(line.substring(type.range.last + 1))
+                                }
+                            },
+                            fontFamily = TermMono,
+                            fontSize = fontSize
+                        )
+                    }
+                    !isVerdict && kv != null && kv.groupValues[2].isNotEmpty() &&
+                        !t.startsWith(";;") && !t.startsWith("==") ->
+                        Text(
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = p.dim)) { append(kv.groupValues[1] + ":") }
+                                append(" ")
+                                withStyle(SpanStyle(color = terminalLineColor(line, p))) {
+                                    append(kv.groupValues[2])
+                                }
+                            },
+                            fontFamily = TermMono,
+                            fontSize = fontSize
+                        )
+                    else -> Text(
                         line,
                         color = terminalLineColor(line, p),
                         fontFamily = TermMono,
@@ -328,11 +381,10 @@ private fun OutputLine(
             }
         }
     }
-    if (bottomSpacer) {
-        Column(Modifier.padding(bottom = 12.dp)) { body() }
-    } else {
-        body()
-    }
+    // Row gap: a wrapped row would otherwise run straight into the next output
+    // line — the slightly wider gap is what tells two output lines apart (same
+    // idea as the WiFi AP block gap, which is bigger to group SSID + MAC + detail).
+    Column(Modifier.padding(bottom = if (bottomSpacer) 12.dp else 6.dp)) { body() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -901,7 +953,7 @@ fun HomeScreen(
                     ) {
                         Text("Record type", style = MaterialTheme.typography.labelLarge)
                         Text(
-                            "DNS server: ${state.settings.dnsServer} - hold Dig to change",
+                            "DNS server: ${state.settings.dnsServer}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -909,15 +961,11 @@ fun HomeScreen(
                     }
                 }
                 val digBody: @Composable () -> Unit = {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        DnsRunner.types.forEach { ty ->
-                            FilterChip(
-                                selected = state.digType == ty,
-                                onClick = { vm.setDigType(ty) },
-                                label = { Text(ty) }
-                            )
-                        }
-                    }
+                    OptionRow(
+                        options = DnsRunner.types.map { it to it },
+                        selected = state.digType,
+                        onSelect = { vm.setDigType(it) }
+                    )
                 }
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -969,7 +1017,7 @@ fun HomeScreen(
                     )
                     1 -> {
                         val chans = listOf(-1) + state.wifiChannels
-                        WifiOptionRow(
+                        OptionRow(
                             options = chans.map { c -> c to (if (c == -1) "All" else "$c") },
                             selected = state.wifiChannel,
                             onSelect = vm::setWifiChannel
@@ -1654,7 +1702,7 @@ private fun promptLocationSettings(context: Context, vm: NetToolsViewModel) {
 
 /** One option strip for the active filter dimension: tight chips, one row, h-scroll. */
 @Composable
-private fun <T> WifiOptionRow(
+private fun <T> OptionRow(
     options: List<Pair<T, String>>,
     selected: T,
     onSelect: (T) -> Unit
