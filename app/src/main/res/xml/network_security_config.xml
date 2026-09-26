@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android blocks cleartext since API 28; ip-api.com's free tier is HTTP-only
+     (HTTPS is a paid tier), so it gets the one narrow exception. Everything
+     else stays HTTPS-only. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">ip-api.com</domain>
+    </domain-config>
+</network-security-config>
