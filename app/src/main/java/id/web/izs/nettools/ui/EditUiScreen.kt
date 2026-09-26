@@ -85,6 +85,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
     Scaffold(
         topBar = {
             TopAppBar(
+                expandedHeight = 48.dp,
                 title = { Text(stringResource(R.string.editui_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

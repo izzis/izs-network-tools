@@ -76,6 +76,7 @@ fun ManageHostsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onPick: (String
     Scaffold(
         topBar = {
             TopAppBar(
+                expandedHeight = 48.dp,
                 title = { Text(stringResource(R.string.hosts_title, state.saved.size)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

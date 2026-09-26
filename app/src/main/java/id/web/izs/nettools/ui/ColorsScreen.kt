@@ -101,6 +101,7 @@ fun ColorsScreen(vm: NetToolsViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
+                expandedHeight = 48.dp,
                 title = { Text(stringResource(R.string.colors_title)) },
                 navigationIcon = {
                     IconButton(onClick = {

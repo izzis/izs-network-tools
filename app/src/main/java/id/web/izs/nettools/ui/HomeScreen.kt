@@ -573,6 +573,10 @@ fun HomeScreen(
     // under the gesture pill (Scaffold leaves insets to the bar itself).
     val topBar: @Composable () -> Unit = {
             TopAppBar(
+                // 48dp instead of M3's 64dp: the bar only carries a title and
+                // three small actions, so the page gets 16dp back. Insets stay
+                // outside the height automatically (expandedHeight = content).
+                expandedHeight = 48.dp,
                 // Like empty space elsewhere, the bar's empty area dismisses
                 // the keyboard / target focus and closes the saved list —
                 // taps on the buttons are consumed by them first (matters when
