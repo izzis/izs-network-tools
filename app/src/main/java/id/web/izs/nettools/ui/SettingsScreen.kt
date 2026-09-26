@@ -604,7 +604,7 @@ private fun GeneralTab(s: AppSettings, update: (AppSettings) -> Unit, onOpenColo
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text("Clear output on each run")
+        Text("Clear output on run or tool switch")
         Switch(checked = s.autoClearOutput, onCheckedChange = { update(s.copy(autoClearOutput = it)) })
     }
 

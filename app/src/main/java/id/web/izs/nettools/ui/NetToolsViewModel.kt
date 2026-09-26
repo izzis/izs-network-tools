@@ -211,10 +211,13 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         }
         val bar = if (t == Tool.WIFIANALYZER) wifiTarget else hostTarget
         // Drop any stale loop banner: it belonged to the previous tool/target.
+        // Same knob as "clear on each run": a tool switch starts a new job, so
+        // the previous tool's output goes too (unless the user turned it off).
         _state.update {
             it.copy(
                 tool = t,
                 target = bar,
+                lines = if (prev != t && it.settings.autoClearOutput) emptyList() else it.lines,
                 loopVerdict = null,
                 stormVerdict = null,
                 dropExpanded = false
