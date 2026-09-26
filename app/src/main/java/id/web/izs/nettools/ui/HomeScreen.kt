@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,6 +44,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.zIndex
@@ -685,21 +687,27 @@ fun HomeScreen(
                 .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
                 .then(if (!targetTop && !state.settings.topBarBottom) Modifier.imePadding() else Modifier)
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = {
-                        focusManager.clearFocus()
-                        // Tap on empty space (console, hint, spacers) dismisses
-                        // the saved list. Clickable children consume their own
-                        // taps, so setTool/run/stop close it on their side.
-                        if (state.dropExpanded) vm.setDrop(false)
-                    })
-                },
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // --- Sections (Edit UI order) --------------------------------
+        // --- Landscape: terminal gets its own full-height column ---
+        // The console is what users read for minutes; at ~360dp of height,
+        // sharing it with the controls would leave both too small. The
+        // controls keep their portrait order in a scrollable left column,
+        // the terminal fills the right one (LTR flow: input left, output
+        // right). Portrait stays exactly as before.
+        // containerSize over Configuration.screenWidthDp: the dp fields round
+        // differently across target SDK versions (ConfigurationScreenWidth).
+        val window = LocalWindowInfo.current.containerSize
+        val landscape = window.width > window.height
+        // Tap on empty space (console, hint, spacers) dismisses focus and
+        // the saved list. Clickable children consume their own taps, so
+        // setTool/run/stop close it on their side. Shared by the portrait
+        // Column and the landscape Row below.
+        val tapDismiss = Modifier.pointerInput(Unit) {
+            detectTapGestures(onTap = {
+                focusManager.clearFocus()
+                if (state.dropExpanded) vm.setDrop(false)
+            })
+        }
+        // --- Sections (Edit UI order) --------------------------------
             // Each lambda holds the exact pre-refactor block; only the
             // sequence below follows the user's order (Settings > Edit UI).
             // Recent/saved picker side (Edit UI): "top" flows the card above
@@ -1263,12 +1271,14 @@ fun HomeScreen(
             if (state.settings.toolExtraPos == "bottom") toolExtra()
             if (state.settings.toolDescPos == "bottom") toolHints()
             }
-            val terminalSection: @Composable ColumnScope.() -> Unit = {
+            // Portrait passes Column weight (remaining height); landscape
+            // passes Row weight (column width + full height) — same block.
+            val terminalCard: @Composable (Modifier) -> Unit = { mod ->
             // --- Output console: dark terminal panel ---
             Card(
                 colors = CardDefaults.cardColors(containerColor = term.bg),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().weight(1f)
+                modifier = mod
             ) {
                     Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
                     // Terminal toolbar: Run/Stop · progress · font · Clear.
@@ -1427,13 +1437,46 @@ fun HomeScreen(
                     }
             }
             }
+        // Non-terminal sections in the user's order — the landscape left
+        // column uses this; the terminal lives in the right column there.
+        val restInOrder: @Composable ColumnScope.() -> Unit = {
             state.settings.uiSections.forEach { id ->
                 when (id) {
                     "target" -> targetSection()
                     "tools" -> toolsSection()
-                    "terminal" -> terminalSection()
                     else -> {}
                 }
+            }
+        }
+        if (!landscape) {
+            Column(
+                modifier = Modifier.fillMaxSize().then(tapDismiss),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                state.settings.uiSections.forEach { id ->
+                    when (id) {
+                        "target" -> targetSection()
+                        "tools" -> toolsSection()
+                        "terminal" -> terminalCard(Modifier.fillMaxWidth().weight(1f))
+                        else -> {}
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxSize().then(tapDismiss),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Controls: same sections, same order, scrollable — the
+                // picker card and the IME eat the ~360dp of height quickly.
+                Column(
+                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    restInOrder()
+                }
+                // Terminal slightly wider: console lines run long.
+                terminalCard(Modifier.weight(1.2f).fillMaxHeight())
             }
         }
 
