@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -681,14 +682,121 @@ fun HomeScreen(
             // --- Sections (Edit UI order) --------------------------------
             // Each lambda holds the exact pre-refactor block; only the
             // sequence below follows the user's order (Settings > Edit UI).
+            // Recent/saved picker side (Edit UI): "top" flows the card above
+            // the target box, "bottom" (default) keeps it below.
+            val savedListTop = state.settings.savedListPos == "top"
+            // Picker body shared by both positions: Recent first, Saved below.
+            val savedListBody: @Composable () -> Unit = {
+                    Column(
+                        modifier = Modifier
+                            .padding(vertical = 4.dp)
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        // Each list is one block so Edit UI can swap their
+                        // order (recent first by default).
+                        val recentBlock: @Composable () -> Unit = {
+                        if (state.settings.maxRecent > 0) {
+                            Text(
+                                stringResource(R.string.home_recent),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            if (recentShown.isEmpty()) {
+                                Text(
+                                    if (dropQuery.isEmpty()) stringResource(R.string.home_no_history)
+                                    else stringResource(R.string.home_no_recent_match, dropQuery),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                )
+                            }
+                            recentShown.forEach { h ->
+                                TargetRow(
+                                    title = h,
+                                    subtitle = null,
+                                    onPick = { vm.pickTarget(h) },
+                                    onDelete = null
+                                )
+                            }
+                        }
+                        }
+                        val savedBlock: @Composable () -> Unit = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                stringResource(R.string.home_saved),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            Spacer(Modifier.weight(1f))
+                            if (state.target.isNotBlank()) {
+                                TextButton(
+                                    onClick = { vm.toggleSave() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        if (state.isTargetSaved) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (state.isTargetSaved) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        if (state.isTargetSaved) stringResource(R.string.home_remove)
+                                        else stringResource(R.string.save),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                        if (savedShown.isEmpty()) {
+                            Text(
+                                if (dropQuery.isEmpty()) stringResource(R.string.home_saved_empty)
+                                else stringResource(R.string.home_no_saved_match, dropQuery),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
+                        savedShown.forEach { h ->
+                            TargetRow(
+                                title = h.label,
+                                subtitle = h.host,
+                                onPick = { vm.pickTarget(h.host) },
+                                onDelete = { vm.deleteSaved(h.id) }
+                            )
+                        }
+                        }
+                        if (state.settings.savedListOrder == "saved") {
+                            savedBlock()
+                            recentBlock()
+                        } else {
+                            recentBlock()
+                            savedBlock()
+                        }
+                    }
+            }
             val targetSection: @Composable ColumnScope.() -> Unit = {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // The dropdown overflows this Box; zIndex lifts the whole
+                    // The picker overflows this block; zIndex lifts the whole
                     // section over whatever follows it in the order.
-                    .zIndex(1f)
+                    .zIndex(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+            if (savedListTop && state.dropExpanded) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    savedListBody()
+                }
+            }
+            Box(modifier = Modifier.fillMaxWidth()) {
             // --- Target bar: single unified search bar ---
             // My IP / Neighbor ignore the target: show the label and hide
             // any value left over from another tool (kept in state, restored
@@ -757,11 +865,10 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().height(56.dp)
             )
 
-            // --- Saved + recent dropdown: floats under the 56.dp field ---
-            // Anchored to the field itself (+ 8.dp column gap), so it lands
-            // right under it at any section order; the wrapper Box's zIndex
-            // keeps it above the sections that follow.
-            if (state.dropExpanded) {
+            // --- Saved + recent picker: side picked in Edit UI ---
+            // Bottom (default): anchored under the field (+ 8.dp column gap),
+            // the wrapper Box's zIndex keeps it above the sections below.
+            if (!savedListTop && state.dropExpanded) {
                 Card(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -769,90 +876,9 @@ fun HomeScreen(
                         .padding(top = 64.dp)
                         .zIndex(1f)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .padding(vertical = 4.dp)
-                            .heightIn(max = 360.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(0.dp)
-                    ) {
-                        // Recent first (quick re-pick of what you just used);
-                        // Saved below with Save/Remove on its header row.
-                        if (state.settings.maxRecent > 0) {
-                            Text(
-                                stringResource(R.string.home_recent),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                            if (recentShown.isEmpty()) {
-                                Text(
-                                    if (dropQuery.isEmpty()) stringResource(R.string.home_no_history)
-                                    else stringResource(R.string.home_no_recent_match, dropQuery),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                )
-                            }
-                            recentShown.forEach { h ->
-                                TargetRow(
-                                    title = h,
-                                    subtitle = null,
-                                    onPick = { vm.pickTarget(h) },
-                                    onDelete = null
-                                )
-                            }
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                stringResource(R.string.home_saved),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                            Spacer(Modifier.weight(1f))
-                            if (state.target.isNotBlank()) {
-                                TextButton(
-                                    onClick = { vm.toggleSave() },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                                ) {
-                                    Icon(
-                                        if (state.isTargetSaved) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = if (state.isTargetSaved) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        if (state.isTargetSaved) stringResource(R.string.home_remove)
-                                        else stringResource(R.string.save),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                        if (savedShown.isEmpty()) {
-                            Text(
-                                if (dropQuery.isEmpty()) stringResource(R.string.home_saved_empty)
-                                else stringResource(R.string.home_no_saved_match, dropQuery),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                            )
-                        }
-                        savedShown.forEach { h ->
-                            TargetRow(
-                                title = h.label,
-                                subtitle = h.host,
-                                onPick = { vm.pickTarget(h.host) },
-                                onDelete = { vm.deleteSaved(h.id) }
-                            )
-                        }
-                    }
+                    savedListBody()
                 }
+            }
             }
             }
             }
@@ -1227,7 +1253,9 @@ fun HomeScreen(
                     // Terminal toolbar: Run/Stop · progress · font · Clear.
                     // Edit UI picks above or below the output — same row.
                     val termToolbar: @Composable () -> Unit = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Run and Clear sit at the two ends — Edit UI picks the side.
+                        val runRight = state.settings.runPos == "right"
+                        val runBtn: @Composable () -> Unit = {
                             // No static "Output" label (obvious enough): dynamic Run/Stop instead.
                             TextButton(onClick = { if (state.running) vm.stop() else runAction() }) {
                                 Icon(
@@ -1243,6 +1271,22 @@ fun HomeScreen(
                                     color = if (state.running) term.green else term.text
                                 )
                             }
+                        }
+                        val clearBtn: @Composable () -> Unit = {
+                            TextButton(onClick = { vm.clearOutput() }) {
+                                Icon(
+                                    Icons.Filled.DeleteSweep,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = term.text
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(stringResource(R.string.home_clear), color = term.text)
+                            }
+                        }
+                        // Groups so Run can sit on either end: status hugs Run,
+                        // Clear/font/sort hug the other end (Edit UI picks the side).
+                        val statusGroup: @Composable RowScope.() -> Unit = {
                             // Scan/Loop progress, numbers only (e.g. 25/254), plus
                             // Global progress (e.g. 3/10 probes) while a global run is live.
                             val isGlobalRun = (state.tool == Tool.PING && state.pingGlobal) ||
@@ -1286,7 +1330,8 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                            Spacer(Modifier.weight(1f))
+                        }
+                        val sortBtn: @Composable RowScope.() -> Unit = {
                             // Ports only, only after a finished scan: manual
                             // re-sort with open lines above closed ones.
                             if (state.tool == Tool.PORTS && !state.running &&
@@ -1303,21 +1348,30 @@ fun HomeScreen(
                                     Text(stringResource(R.string.home_sort), color = term.text)
                                 }
                             }
+                        }
+                        val fontBtns: @Composable RowScope.() -> Unit = {
                             IconButton(onClick = { vm.bumpFont(-1f) }) {
                                 Icon(Icons.Filled.TextDecrease, contentDescription = stringResource(R.string.home_smaller_text), tint = term.text)
                             }
                             IconButton(onClick = { vm.bumpFont(1f) }) {
                                 Icon(Icons.Filled.TextIncrease, contentDescription = stringResource(R.string.home_bigger_text), tint = term.text)
                             }
-                            TextButton(onClick = { vm.clearOutput() }) {
-                                Icon(
-                                    Icons.Filled.DeleteSweep,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = term.text
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(stringResource(R.string.home_clear), color = term.text)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (!runRight) {
+                                runBtn()
+                                statusGroup()
+                                Spacer(Modifier.weight(1f))
+                                sortBtn()
+                                fontBtns()
+                                clearBtn()
+                            } else {
+                                clearBtn()
+                                fontBtns()
+                                sortBtn()
+                                Spacer(Modifier.weight(1f))
+                                statusGroup()
+                                runBtn()
                             }
                         }
                         }

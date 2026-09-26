@@ -155,6 +155,43 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                             }
                         }
 
+                        if (id == "target") {
+                            settingRow(R.string.editui_saved_list) {
+                                listOf(
+                                    "top" to R.string.top,
+                                    "bottom" to R.string.bottom
+                                ).forEach { (value, labelRes) ->
+                                    FilterChip(
+                                        selected = s.savedListPos == value,
+                                        onClick = { vm.setSavedListPos(value) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
+                            }
+                            Text(
+                                stringResource(R.string.editui_saved_list_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            settingRow(R.string.editui_saved_list_order) {
+                                listOf(
+                                    "recent" to R.string.editui_recent_first,
+                                    "saved" to R.string.editui_saved_first
+                                ).forEach { (value, labelRes) ->
+                                    FilterChip(
+                                        selected = s.savedListOrder == value,
+                                        onClick = { vm.setSavedListOrder(value) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
+                            }
+                            Text(
+                                stringResource(R.string.editui_saved_list_order_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
                         if (id == "tools") {
                             settingRow(R.string.editui_tool_desc) {
                                 listOf(
@@ -240,6 +277,23 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                                     label = { Text(stringResource(R.string.bottom)) }
                                 )
                             }
+                            settingRow(R.string.editui_run_pos) {
+                                listOf(
+                                    "left" to R.string.left,
+                                    "right" to R.string.right
+                                ).forEach { (value, labelRes) ->
+                                    FilterChip(
+                                        selected = s.runPos == value,
+                                        onClick = { vm.setRunPos(value) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
+                            }
+                            Text(
+                                stringResource(R.string.editui_run_pos_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -260,6 +314,9 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                         vm.setToolDescPos("top")
                         vm.setToolExtraPos("top")
                         vm.setToolExtraHeader("bottom")
+                        vm.setSavedListPos("top")
+                        vm.setSavedListOrder("recent")
+                        vm.setRunPos("left")
                     },
                     modifier = Modifier.weight(1f)
                 ) {
@@ -283,12 +340,20 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                         vm.setToolDescPos("bottom")
                         vm.setToolExtraPos("bottom")
                         vm.setToolExtraHeader("top")
+                        vm.setSavedListPos("bottom")
+                        vm.setSavedListOrder("recent")
+                        vm.setRunPos("left")
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(stringResource(R.string.defaults))
+                    Text(stringResource(R.string.editui_reset), maxLines = 1)
                 }
             }
+            Text(
+                stringResource(R.string.editui_presets_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

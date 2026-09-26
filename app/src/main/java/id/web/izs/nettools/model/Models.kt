@@ -102,7 +102,15 @@ data class AppSettings(
     val toolExtraPos: String = "bottom",
     /** Header inside the tool extra card: DIG's "Record type" row, WiFi's
      *  Band/Channel/Security/Display tabs — top of the card (default) or bottom. */
-    val toolExtraHeader: String = "top"
+    val toolExtraHeader: String = "top",
+    /** Recent & saved picker (the card under the target box): opens above or
+     *  below the target box (default below). */
+    val savedListPos: String = "bottom",
+    /** Order inside the picker card: recent first (default) or saved first. */
+    val savedListOrder: String = "recent",
+    /** Terminal toolbar: Run on the left (default) or right — Clear always
+     *  sits at the opposite end. */
+    val runPos: String = "left"
 )
 
 /** Edit UI layout: the home-screen sections the user can reorder. The top bar
@@ -136,6 +144,18 @@ object UiLayout {
     /** Any unknown header position falls back to the default (top). */
     fun sanitizeHeader(raw: String?): String =
         raw?.takeIf { it in HEADER_POSITIONS } ?: "top"
+
+    /** Any unknown picker position falls back to the default (below). */
+    fun sanitizeSavedList(raw: String?): String =
+        raw?.takeIf { it in listOf("top", "bottom") } ?: "bottom"
+
+    /** Any unknown list order falls back to the default (recent first). */
+    fun sanitizeSavedOrder(raw: String?): String =
+        raw?.takeIf { it in listOf("recent", "saved") } ?: "recent"
+
+    /** Any unknown Run side falls back to the default (left). */
+    fun sanitizeRunPos(raw: String?): String =
+        raw?.takeIf { it in listOf("left", "right") } ?: "left"
 }
 
 object IpInfoPresets {

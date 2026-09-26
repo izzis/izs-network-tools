@@ -70,6 +70,9 @@ class SettingsRepository(private val context: Context) {
         val TOOL_EXTRA = stringPreferencesKey("tool_extra")
         val EXTRA_HEADER = stringPreferencesKey("tool_extra_header")
         val LANGUAGE = stringPreferencesKey("language")
+        val SAVED_LIST = stringPreferencesKey("saved_list_pos")
+        val SAVED_LIST_ORDER = stringPreferencesKey("saved_list_order")
+        val RUN_POS = stringPreferencesKey("run_pos")
     }
 
     val settings: Flow<AppSettings> = context.prefs.data.map { p ->
@@ -116,7 +119,10 @@ class SettingsRepository(private val context: Context) {
             runRowTop = (p[K.RUN_ROWTOP] ?: 1) == 1,
             toolDescPos = UiLayout.sanitizeDesc(p[K.TOOL_DESC]),
             toolExtraPos = UiLayout.sanitizeExtra(p[K.TOOL_EXTRA]),
-            toolExtraHeader = UiLayout.sanitizeHeader(p[K.EXTRA_HEADER])
+            toolExtraHeader = UiLayout.sanitizeHeader(p[K.EXTRA_HEADER]),
+            savedListPos = UiLayout.sanitizeSavedList(p[K.SAVED_LIST]),
+            savedListOrder = UiLayout.sanitizeSavedOrder(p[K.SAVED_LIST_ORDER]),
+            runPos = UiLayout.sanitizeRunPos(p[K.RUN_POS])
         )
     }
 
@@ -161,6 +167,9 @@ class SettingsRepository(private val context: Context) {
             p[K.TOOL_DESC] = s.toolDescPos
             p[K.TOOL_EXTRA] = s.toolExtraPos
             p[K.EXTRA_HEADER] = s.toolExtraHeader
+            p[K.SAVED_LIST] = s.savedListPos
+            p[K.SAVED_LIST_ORDER] = s.savedListOrder
+            p[K.RUN_POS] = s.runPos
         }
     }
 

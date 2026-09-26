@@ -65,7 +65,7 @@
     <string name="done">Done</string>
     <string name="edit">Edit</string>
     <string name="edit_ui">Edit UI</string>
-    <string name="editui_default_down">Default ↓</string>
+    <string name="editui_default_down">Preset ↓</string>
     <string name="editui_edge_bottom">Bottom edge</string>
     <string name="editui_edge_top">Top edge</string>
     <string name="editui_grid_rows">Grid rows</string>
@@ -74,7 +74,7 @@
     <string name="editui_move_to_bottom">Move %1$s to bottom</string>
     <string name="editui_move_to_top">Move %1$s to top</string>
     <string name="editui_move_up">Move %1$s up</string>
-    <string name="editui_order_help">Cards follow the home order. Top bar arrows jump to the edge; other sections move one step per tap.</string>
+    <string name="editui_order_help">Cards mirror the home order. Top bar arrows jump it straight to the edge; the other cards move one position per tap.</string>
     <string name="editui_section_target">Target box</string>
     <string name="editui_section_terminal">Terminal</string>
     <string name="editui_section_tools">Tools</string>
@@ -210,4 +210,17 @@
     <string name="msg_already_saved">Already in saved</string>
     <string name="msg_enter_target">Enter a target first (IP / host)</string>
     <string name="msg_invalid_target">Invalid target</string>
+    <!-- Edit UI: recent & saved picker position -->
+    <string name="editui_saved_list">List position</string>
+    <string name="editui_saved_list_hint">Where the list opens: above or below the target box.</string>
+    <string name="editui_saved_list_order">List order</string>
+    <string name="editui_saved_list_order_hint">Which list comes first inside the card.</string>
+    <string name="editui_recent_first">Recent first</string>
+    <string name="editui_saved_first">Saved first</string>
+    <string name="left">Left</string>
+    <string name="right">Right</string>
+    <string name="editui_run_pos">Run button</string>
+    <string name="editui_run_pos_hint">Run on this side, Clear at the other end.</string>
+    <string name="editui_reset">Reset</string>
+    <string name="editui_presets_hint">Preset: terminal on top, target box within easier reach · Reset: back to the factory options</string>
 </resources>

@@ -470,6 +470,27 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.saveSettings(_state.value.settings) }
     }
 
+    /** Edit UI: recent/saved picker opens above or below the target box. */
+    fun setSavedListPos(v: String) {
+        val pos = UiLayout.sanitizeSavedList(v)
+        _state.update { it.copy(settings = it.settings.copy(savedListPos = pos)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: recent/saved order inside the picker card. */
+    fun setSavedListOrder(v: String) {
+        val order = UiLayout.sanitizeSavedOrder(v)
+        _state.update { it.copy(settings = it.settings.copy(savedListOrder = order)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
+    /** Edit UI: Run button side in the terminal toolbar (Clear goes opposite). */
+    fun setRunPos(v: String) {
+        val pos = UiLayout.sanitizeRunPos(v)
+        _state.update { it.copy(settings = it.settings.copy(runPos = pos)) }
+        viewModelScope.launch { repo.saveSettings(_state.value.settings) }
+    }
+
     fun pickTarget(host: String) {
         setTarget(host)
         setDrop(false)
