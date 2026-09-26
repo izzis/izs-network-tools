@@ -1,5 +1,7 @@
 package id.web.izs.nettools.ui
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +10,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -50,9 +54,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +74,7 @@ import id.web.izs.nettools.model.Tool
 import id.web.izs.nettools.model.WhoisPresets
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /** Server field: editable text on the left, preset dropdown button on the right.
  *  With editable=false it becomes a pure picker (used for the app theme):
@@ -195,9 +203,54 @@ private fun NumberField(
     )
 }
 
+/**
+ * Left/right edge dead zone for the tab pager: a swipe that starts inside the
+ * system-gesture inset belongs to the Android back gesture, not to paging —
+ * the two used to fight (sometimes the tab flipped, sometimes back fired).
+ * Only horizontal drags are swallowed: taps and vertical scrolls still reach
+ * the page content underneath.
+ */
+@Composable
+private fun edgeDeadZone(): Modifier {
+    val density = LocalDensity.current
+    val dir = LocalLayoutDirection.current
+    val deadPx = with(density) { WindowInsets.systemGestures.getLeft(density, dir).toFloat() }
+    return Modifier.pointerInput(deadPx) {
+        if (deadPx <= 0f) return@pointerInput
+        val slop = viewConfiguration.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val w = size.width
+            // Only strips at the very edges; the middle swipes normally.
+            if (down.position.x > deadPx && down.position.x < w - deadPx) return@awaitEachGesture
+            var armed = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val ch = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                if (armed) {
+                    down.consume()
+                    event.changes.forEach { it.consume() }
+                    if (!ch.pressed) return@awaitEachGesture
+                    continue
+                }
+                if (!ch.pressed) return@awaitEachGesture
+                val dx = abs(ch.position.x - down.position.x)
+                val dy = abs(ch.position.y - down.position.y)
+                if (dx > slop && dx > dy) {
+                    armed = true
+                    down.consume()
+                    event.changes.forEach { it.consume() }
+                } else if (dy > slop) {
+                    return@awaitEachGesture
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -> Unit, onOpenAbout: () -> Unit, onOpenEditUi: () -> Unit) {
+fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -> Unit, onOpenAbout: () -> Unit, onOpenEditUi: () -> Unit, initialTab: Int = 0, onTabChange: (Int) -> Unit = {}) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -206,7 +259,10 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
     var s by remember(state.settings) { mutableStateOf(state.settings) }
     var dirty by remember { mutableStateOf(false) }
     val tabs = listOf("Servers", "Scan", "Tools", "General")
-    val pagerState = rememberPagerState { tabs.size }
+    val pagerState = rememberPagerState(initialPage = initialTab) { tabs.size }
+    // Report the visible tab so a sub-screen (Edit UI, Custom Colors) can bring
+    // you back to where you left instead of resetting to the first tab.
+    LaunchedEffect(pagerState.currentPage) { onTabChange(pagerState.currentPage) }
 
     // Auto-save (debounced): covers top-left back, system back gesture/button.
     LaunchedEffect(s) {
@@ -270,14 +326,14 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                     )
                 }
             }
-            // Swipeable pages. Horizontal swipes here switch tabs; the Android
-            // system back gesture (from the very screen edge) still works.
+            // Swipeable pages: horizontal swipes switch tabs, except inside the
+            // system-gesture strip at each edge, which is left to back-gesture.
             HorizontalPager(
                 state = pagerState,
                 // Neighbor pages stay composed so swiping never pays
                 // first-composition cost mid-gesture (4 light pages, cheap).
                 beyondViewportPageCount = 1,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).then(edgeDeadZone())
             ) { page ->
                 Column(
                     modifier = Modifier

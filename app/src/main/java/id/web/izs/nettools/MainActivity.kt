@@ -64,11 +64,24 @@ class MainActivity : ComponentActivity() {
                 if (!uiState.settingsLoaded) {
                     Box(modifier = Modifier.fillMaxSize().background(scheme.background))
                 } else {
-                var screen by remember { mutableStateOf("home") }
+                // Back stack: top-bar arrows and the Android back button must do
+                // the same thing (pop one level), so Edit UI / Colors entered from
+                // Settings return to Settings (General tab), from the Home FAB
+                // they return to Home.
+                var stack by remember { mutableStateOf(listOf("home")) }
+                // Settings remembers its last tab: Edit UI / Custom Colors live in
+                // General, so coming back must not reset the pager to the first tab.
+                var settingsTab by remember { mutableStateOf(0) }
                 var lastBack by remember { mutableLongStateOf(0L) }
+                fun back() {
+                    if (stack.size > 1) stack = stack.dropLast(1)
+                }
+                fun push(to: String) {
+                    stack = stack + to
+                }
                 BackHandler {
-                    if (screen != "home") {
-                        screen = "home"
+                    if (stack.size > 1) {
+                        back()
                     } else {
                         val now = System.currentTimeMillis()
                         if (now - lastBack < 2000) {
@@ -79,22 +92,24 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                when (screen) {
+                when (stack.last()) {
                     "settings" -> SettingsScreen(
                         vm,
-                        onBack = { screen = "home" },
-                        onOpenColors = { screen = "colors" },
-                        onOpenAbout = { screen = "about" },
-                        onOpenEditUi = { screen = "editui" }
+                        onBack = { back() },
+                        onOpenColors = { push("colors") },
+                        onOpenAbout = { push("about") },
+                        onOpenEditUi = { push("editui") },
+                        initialTab = settingsTab,
+                        onTabChange = { settingsTab = it }
                     )
-                    "about" -> AboutScreen(onBack = { screen = "settings" })
-                    "colors" -> ColorsScreen(vm, onBack = { screen = "settings" })
-                    "editui" -> EditUiScreen(vm, onBack = { screen = "settings" }, onView = { screen = "home" })
-                    "hosts" -> ManageHostsScreen(vm, onBack = { screen = "home" }) { host ->
+                    "about" -> AboutScreen(onBack = { back() })
+                    "colors" -> ColorsScreen(vm, onBack = { back() })
+                    "editui" -> EditUiScreen(vm, onBack = { back() }, onView = { push("home") })
+                    "hosts" -> ManageHostsScreen(vm, onBack = { back() }) { host ->
                         vm.pickTarget(host)
-                        screen = "home"
+                        back()
                     }
-                    else -> HomeScreen(vm, onOpenSettings = { screen = "settings" }, onOpenHosts = { screen = "hosts" }, onOpenEditUi = { screen = "editui" })
+                    else -> HomeScreen(vm, onOpenSettings = { push("settings") }, onOpenHosts = { push("hosts") }, onOpenEditUi = { push("editui") })
                 }
                 }
             }

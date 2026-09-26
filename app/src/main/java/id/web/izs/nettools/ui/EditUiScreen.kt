@@ -251,7 +251,7 @@ fun EditUiScreen(vm: NetToolsViewModel, onBack: () -> Unit, onView: () -> Unit) 
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Default bottom")
+                    Text("Default ↓", maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = {
