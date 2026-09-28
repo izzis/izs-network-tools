@@ -79,4 +79,6 @@ jobs:
         run: |
           TAG="v${{ steps.ver.outputs.VER }}"
           gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$TAG" --title "$TAG" --notes "Signed release APK." "app/build/outputs/apk/release/izs-nettools-v${{ steps.ver.outputs.VER }}.apk"
+          gh release create "$TAG" --title "$TAG" --generate-notes \
+            --notes "Signed release APK." \
+            "app/build/outputs/apk/release/izs-nettools-v${{ steps.ver.outputs.VER }}.apk"
