@@ -1,5 +1,5 @@
 [versions]
-# Verified latest stable Sep 2026
+# Verified latest stable Oct 2026
 agp = "9.4.1"
 kotlin = "2.4.20"
 composeBom = "2026.09.00"
@@ -12,7 +12,7 @@ okhttp = "5.5.0"
 serializationJson = "1.11.0"
 dnsjava = "3.6.5"
 junit = "4.13.2"
-orgJson = "20240303"
+orgJson = "20260814"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
