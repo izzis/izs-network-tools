@@ -103,4 +103,5 @@ dependencies {
     implementation(libs.dnsjava)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 }

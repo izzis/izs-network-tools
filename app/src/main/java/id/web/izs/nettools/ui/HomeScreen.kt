@@ -124,6 +124,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -199,6 +200,27 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
         t.contains("Destination reached") || t.startsWith("No loop:") ||
         t.startsWith("No storm:")
     ) return p.green
+    // Lookup verdicts (iplookup / ip-api style).
+    if (t.startsWith("success:")) {
+        val v = t.substringAfter(':').trim()
+        return if (v == "true" || v == "yes" || v == "ok" || v == "success") p.green else p.red
+    }
+    if (t.startsWith("status:")) {
+        val v = t.substringAfter(':').trim()
+        if (v == "true" || v == "ok" || v == "success") return p.green
+        if (v == "fail" || v == "failed" || v == "error") return p.red
+    }
+    // Grouped feature flags: threats pop, neutral state stays plain, all clear green.
+    if (t.startsWith("flags:")) return when {
+        t.contains("tor=yes") -> p.red
+        t.contains("vpn=yes") || t.contains("proxy=yes") || t.contains("hosting=yes") -> p.amber
+        t.contains("private=yes") || t.contains("cgnat=yes") -> p.text
+        else -> p.green
+    }
+    // Single risk flag: on warns, off is explicitly clear (green).
+    if (t.matches(Regex("(?:is_)?tor: (?:true|yes)"))) return p.red
+    if (t.matches(Regex("(?:is_)?(?:vpn|proxy|hosting): (?:true|yes)"))) return p.amber
+    if (t.matches(Regex("(?:is_)?(?:vpn|proxy|tor|hosting): (?:false|no)"))) return p.green
     // Loop verdicts: detected/suspected always stand out.
     if (t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
         t.startsWith("STORM DETECTED") || t.startsWith("Suspected storm")
@@ -240,7 +262,13 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     return p.text
 }
 
-private val kvPattern = Regex("^([A-Za-z][A-Za-z0-9 _.\\-/]{0,40}): (.*)$")
+private val kvPattern = Regex("^(\\s*)([A-Za-z][A-Za-z0-9 _.\\-/]{0,40}): (.*)$")
+
+/** `true`/`false` tokens inside a "key: value" value — colored green/red. */
+private val boolTok = Regex("\\b(true|false)\\b")
+
+/** Bare YAML parent key line (`location:`) — no value after the colon. */
+private val bareKey = Regex("\\s*[A-Za-z_][A-Za-z0-9 _.\\-/]*:")
 
 /** Dig answer row from DnsRunner.answerRow (`name 300 IN A 1.2.3.4`). Matched on a
  *  copy whose NBSP padding became plain spaces — same length, so group ranges still
@@ -328,64 +356,20 @@ private fun OutputLine(
                 )
             }
             else -> {
-                val kv = if (!raw.contains('\t')) kvPattern.find(line) else null
-                // Loop verdict lines keep their full semantic color (whole line green
-                // or red) instead of a dimmed "Key:" prefix — the verdict must pop.
-                val t = line.trimStart()
-                val isVerdict = t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
-                    t.startsWith("No loop:") || t.startsWith("STORM DETECTED") ||
-                    t.startsWith("Suspected storm") || t.startsWith("No storm:")
-                val dns = if (!isVerdict) dnsAnswer.find(line.replace('\u00A0', ' ')) else null
-                when {
-                    // Dig answer row: the domain and the value stay on p.text, only
-                    // the ttl/class gutter dims (a dim domain read as another `;;`
-                    // comment) and the record type carries the family colour — all
-                    // from the palette, so light themes render dark-on-light.
-                    dns != null -> {
-                        val name = dns.groups[1]!!
-                        val type = dns.groups[3]!!
-                        val typeColor = when (type.value) {
-                            "A", "AAAA" -> p.green
-                            "TXT" -> p.amber
-                            else -> p.blue
+                // One emission can carry a whole block (head + body). Style each
+                // line on its own: kv/verdict rules must not leak across lines.
+                val raws = if (raw.contains('\n')) raw.split('\n') else listOf(raw)
+                val lss = if (line.contains('\n')) line.split('\n') else listOf(line)
+                Text(
+                    buildAnnotatedString {
+                        for (idx in lss.indices) {
+                            if (idx > 0) append('\n')
+                            appendStyled(this, raws.getOrElse(idx) { lss[idx] }, lss[idx], p)
                         }
-                        Text(
-                            buildAnnotatedString {
-                                withStyle(SpanStyle(color = p.text)) {
-                                    append(line.substring(0, name.range.last + 1))
-                                }
-                                withStyle(SpanStyle(color = p.dim)) {
-                                    append(line.substring(name.range.last + 1, type.range.first))
-                                }
-                                withStyle(SpanStyle(color = typeColor)) { append(type.value) }
-                                withStyle(SpanStyle(color = p.text)) {
-                                    append(line.substring(type.range.last + 1))
-                                }
-                            },
-                            fontFamily = TermMono,
-                            fontSize = fontSize
-                        )
-                    }
-                    !isVerdict && kv != null && kv.groupValues[2].isNotEmpty() &&
-                        !t.startsWith(";;") && !t.startsWith("==") ->
-                        Text(
-                            buildAnnotatedString {
-                                withStyle(SpanStyle(color = p.dim)) { append(kv.groupValues[1] + ":") }
-                                append(" ")
-                                withStyle(SpanStyle(color = terminalLineColor(line, p))) {
-                                    append(kv.groupValues[2])
-                                }
-                            },
-                            fontFamily = TermMono,
-                            fontSize = fontSize
-                        )
-                    else -> Text(
-                        line,
-                        color = terminalLineColor(line, p),
-                        fontFamily = TermMono,
-                        fontSize = fontSize
-                    )
-                }
+                    },
+                    fontFamily = TermMono,
+                    fontSize = fontSize
+                )
             }
         }
     }
@@ -393,6 +377,74 @@ private fun OutputLine(
     // line — the slightly wider gap is what tells two output lines apart (same
     // idea as the WiFi AP block gap, which is bigger to group SSID + MAC + detail).
     Column(Modifier.padding(bottom = if (bottomSpacer) 12.dp else 6.dp)) { body() }
+}
+
+/** Style a single output line (dns row / key-value / bare key / verdict) into [b]. */
+private fun appendStyled(
+    b: AnnotatedString.Builder,
+    raw: String,
+    line: String,
+    p: TerminalPalette
+) {
+    val kv = if (!raw.contains('\t')) kvPattern.find(line) else null
+    // Loop verdict lines keep their full semantic color (whole line green
+    // or red) instead of a dimmed "Key:" prefix — the verdict must pop.
+    val t = line.trimStart()
+    val isVerdict = t.startsWith("LOOP DETECTED") || t.startsWith("Suspected loop") ||
+        t.startsWith("No loop:") || t.startsWith("STORM DETECTED") ||
+        t.startsWith("Suspected storm") || t.startsWith("No storm:")
+    val dns = if (!isVerdict) dnsAnswer.find(line.replace('\u00A0', ' ')) else null
+    when {
+        // Dig answer row: the domain and the value stay on p.text, only
+        // the ttl/class gutter dims (a dim domain read as another `;;`
+        // comment) and the record type carries the family colour — all
+        // from the palette, so light themes render dark-on-light.
+        dns != null -> {
+            val name = dns.groups[1]!!
+            val type = dns.groups[3]!!
+            val typeColor = when (type.value) {
+                "A", "AAAA" -> p.green
+                "TXT" -> p.amber
+                else -> p.blue
+            }
+            b.withStyle(SpanStyle(color = p.text)) {
+                append(line.substring(0, name.range.last + 1))
+            }
+            b.withStyle(SpanStyle(color = p.dim)) {
+                append(line.substring(name.range.last + 1, type.range.first))
+            }
+            b.withStyle(SpanStyle(color = typeColor)) { append(type.value) }
+            b.withStyle(SpanStyle(color = p.text)) {
+                append(line.substring(type.range.last + 1))
+            }
+        }
+        !isVerdict && kv != null && kv.groupValues[3].isNotEmpty() &&
+            !t.startsWith(";;") && !t.startsWith("==") -> {
+            val value = kv.groupValues[3]
+            val vc = terminalLineColor(line, p)
+            b.withStyle(SpanStyle(color = p.blue)) {
+                append(kv.groupValues[1] + kv.groupValues[2] + ":")
+            }
+            b.append(" ")
+            if (vc == p.text && boolTok.containsMatchIn(value)) {
+                var last = 0
+                for (m in boolTok.findAll(value)) {
+                    b.append(value.substring(last, m.range.first))
+                    b.withStyle(SpanStyle(color = if (m.value == "true") p.green else p.red)) {
+                        append(m.value)
+                    }
+                    last = m.range.last + 1
+                }
+                b.withStyle(SpanStyle(color = vc)) { append(value.substring(last)) }
+            } else {
+                b.withStyle(SpanStyle(color = vc)) { append(value) }
+            }
+        }
+        // YAML parent key ("location:", "asn:") — header-like, keep it blue.
+        kv == null && bareKey.matches(line) ->
+            b.withStyle(SpanStyle(color = p.blue)) { append(line) }
+        else -> b.withStyle(SpanStyle(color = terminalLineColor(line, p))) { append(line) }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

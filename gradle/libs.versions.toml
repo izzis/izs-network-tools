@@ -12,6 +12,7 @@ okhttp = "5.5.0"
 serializationJson = "1.11.0"
 dnsjava = "3.6.5"
 junit = "4.13.2"
+orgJson = "20240303"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -31,6 +32,8 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 dnsjava = { group = "dnsjava", name = "dnsjava", version.ref = "dnsjava" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+# Real org.json for JVM unit tests (the mockable android.jar stubs throw).
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

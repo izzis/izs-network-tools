@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetAddress
 import java.util.concurrent.TimeUnit
@@ -90,23 +91,109 @@ object IpInfoClient {
             emit(";; failed: ${e.message}")
             return@flow
         }
-        try {
-            val o = JSONObject(body)
-            val sb = StringBuilder()
-            val keys = o.keys()
-            while (keys.hasNext()) {
-                val k = keys.next()
-                val v = o.opt(k)
-                if (v == null || v == JSONObject.NULL) continue
-                if (v is JSONObject || v is org.json.JSONArray) {
-                    sb.appendLine("$k: ${v.toString().take(300)}")
-                } else {
-                    sb.appendLine("$k: $v")
-                }
-            }
-            emit(if (sb.isEmpty()) body.take(4000) else sb.toString().trimEnd())
-        } catch (_: Exception) {
-            emit(body.take(4000))
-        }
+        emit(prettyJson(body) ?: body.take(4000))
     }.flowOn(Dispatchers.IO)
+
+    private const val MAX_DEPTH = 6
+    private const val MAX_CHARS = 4000
+
+    /** YAML-ish rendering: nested objects/arrays indent 2 spaces, arrays use `- `
+     *  items, nulls are dropped, top-level `is_*` booleans collapse into one
+     *  `flags:` line. Null when the body is not a JSON object or renders empty. */
+    internal fun prettyJson(body: String, maxChars: Int = MAX_CHARS): String? {
+        val o = try {
+            JSONObject(body)
+        } catch (_: Exception) {
+            return null
+        }
+        val lines = objLines(o, 0, 0, topLevel = true)
+        if (lines.isEmpty()) return null
+        val text = lines.joinToString("\n")
+        if (text.length <= maxChars) return text
+        val cut = text.lastIndexOf('\n', maxChars)
+        return (if (cut > 0) text.substring(0, cut) else text.take(maxChars)) + "\n… (truncated)"
+    }
+
+    private fun objLines(o: JSONObject, indent: Int, depth: Int, topLevel: Boolean): List<String> {
+        val pad = " ".repeat(indent)
+        val keys = ArrayList<String>()
+        val it = o.keys()
+        while (it.hasNext()) keys.add(it.next())
+        val flagKeys = keys.filter { it.startsWith("is_") && o.opt(it) is Boolean }
+        val out = ArrayList<String>(keys.size)
+        var flagsDone = false
+        for (k in keys) {
+            val v = o.opt(k)
+            if (v == null || v === JSONObject.NULL) continue
+            if (topLevel && v is Boolean && k.startsWith("is_")) {
+                if (!flagsDone) {
+                    out.add(
+                        pad + "flags: " + flagKeys.joinToString(" ") {
+                            "${it.removePrefix("is_")}=${if (o.opt(it) == true) "yes" else "no"}"
+                        }
+                    )
+                    flagsDone = true
+                }
+                continue
+            }
+            out.addAll(entryLines(k, v, pad, depth))
+        }
+        return out
+    }
+
+    private fun entryLines(k: String, v: Any, pad: String, depth: Int): List<String> = when (v) {
+        is JSONObject -> when {
+            depth >= MAX_DEPTH -> listOf("$pad$k: ${compact(v)}")
+            v.length() == 0 -> listOf("$pad$k: {}")
+            else -> listOf("$pad$k:") + objLines(v, pad.length + 2, depth + 1, false)
+        }
+        is JSONArray -> when {
+            depth >= MAX_DEPTH -> listOf("$pad$k: ${compact(v)}")
+            v.length() == 0 -> listOf("$pad$k: []")
+            else -> listOf("$pad$k:") + arrLines(v, pad.length + 2, depth + 1)
+        }
+        else -> listOf("$pad$k: ${scalar(v)}")
+    }
+
+    private fun arrLines(a: JSONArray, indent: Int, depth: Int): List<String> {
+        val pad = " ".repeat(indent)
+        val out = ArrayList<String>()
+        for (i in 0 until a.length()) {
+            val v = a.opt(i)
+            if (v == null || v === JSONObject.NULL) continue
+            when {
+                v is JSONObject && depth < MAX_DEPTH -> {
+                    if (v.length() == 0) {
+                        out.add("$pad- {}")
+                    } else {
+                        val sub = objLines(v, indent + 2, depth + 1, false)
+                        out.add(pad + "- " + sub[0].removePrefix(pad + "  "))
+                        out.addAll(sub.subList(1, sub.size))
+                    }
+                }
+                v is JSONArray && depth < MAX_DEPTH -> {
+                    out.add("$pad-")
+                    out.addAll(arrLines(v, indent + 2, depth + 1))
+                }
+                v is JSONObject || v is JSONArray -> out.add("$pad- ${compact(v)}")
+                else -> out.add("$pad- ${scalar(v)}")
+            }
+        }
+        return out
+    }
+
+    private fun compact(v: Any): String = v.toString().take(200)
+
+    private fun scalar(v: Any): String = when {
+        v is Double || v is Float -> fmtDouble(v.toDouble())
+        v is java.math.BigDecimal -> fmtDouble(v.toDouble())
+        else -> v.toString()
+    }
+
+    /** Trim binary-float noise (`0.5166700000000001` -> `0.51667`). */
+    private fun fmtDouble(d: Double): String {
+        if (d.isNaN() || d.isInfinite()) return d.toString()
+        val s = String.format(java.util.Locale.US, "%.6f", d).trimEnd('0').trimEnd('.')
+        return if ((s.isEmpty() || s == "0" || s == "-0") && d != 0.0) d.toString() else s
+    }
 }
