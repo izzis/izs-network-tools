@@ -191,7 +191,7 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     if (t.startsWith("ERROR") || t.contains("failed", ignoreCase = true)) return p.red
     // Headers / summaries / comments.
     if (t.startsWith("==") || t.startsWith("---") || t.startsWith("Final URL") ||
-        t.startsWith("Done") || t.startsWith("rtt ")
+        t.startsWith("Done") || t.startsWith("rtt ") || t.startsWith("PING ")
     ) return p.blue
     if (t.startsWith(";;")) return p.dim
     // Success markers.
@@ -262,6 +262,22 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     return p.text
 }
 
+/** RTT bucket: fast green, sluggish amber, slow red. Unparsable stays plain. */
+private fun latencyColor(ms: Double?, p: TerminalPalette): Color = when {
+    ms == null -> p.text
+    ms < 100.0 -> p.green
+    ms < 200.0 -> p.amber
+    else -> p.red
+}
+
+/** Loss bucket: clear green, dead red, partial loss amber. */
+private fun lossColor(pct: Double?, p: TerminalPalette): Color = when {
+    pct == null -> p.text
+    pct <= 0.0 -> p.green
+    pct >= 100.0 -> p.red
+    else -> p.amber
+}
+
 private val kvPattern = Regex("^(\\s*)([A-Za-z][A-Za-z0-9 _.\\-/]{0,40}): (.*)$")
 
 /** `true`/`false` tokens inside a "key: value" value — colored green/red. */
@@ -277,6 +293,16 @@ private val dnsAnswer = Regex("^(\\S+)\\s+(\\d+|-)\\s+IN\\s+([A-Z]+)\\s(.+)$")
 
 /** MAC line of a WiFi Analyzer AP block (`aa:bb:cc:dd:ee:ff  ch…`). */
 private val wifiMacLine = Regex("^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\\b.*")
+
+/** Ping reply / Globalping stats field: label + separator + value
+ *  (`icmp_seq=1`, `time=12.3 ms`, `avg=0.8ms`, `loss=0%`). */
+private val pingPart = Regex("""\b(icmp_seq|seq|ttl|time|avg|min|max|loss)([=<])([^\s]+)""")
+
+/** Verdict phrase inside a packet-loss summary line (`25% packet loss`). */
+private val lossPhrase = Regex("""(\d+(?:\.\d+)?)%\s+packet loss""")
+
+/** Number token inside an rtt/round-trip summary (`0.456/0.789 ms`). */
+private val numTok = Regex("""\d+(?:\.\d+)?""")
 
 /** Raw server text (whois, RDAP, DNS) can carry tabs. Compose has no tab stops:
  *  '\t' measures zero-width AND is a break point, so the row renders merged
@@ -418,6 +444,50 @@ private fun appendStyled(
                 append(line.substring(type.range.last + 1))
             }
         }
+        // Ping reply / Globalping stats line: color per part — key blue,
+        // labels/separators plain, RTT values bucketed, loss bucketed.
+        // Timeout/unreachable lines carry a whole-line verdict instead: skip
+        // them here so they fall through to the red semantic color.
+        pingPart.containsMatchIn(line) &&
+            !t.startsWith("Request timeout") &&
+            !t.contains("no answer yet") &&
+            !t.contains("unreachable", ignoreCase = true) ->
+            appendPingParts(b, line, p)
+        // Packet-loss summary: only the "N% packet loss" phrase carries the
+        // verdict — sent/received counts around it stay plain text.
+        t.contains("packet loss") -> {
+            val m = lossPhrase.find(line)
+            if (m == null) {
+                b.withStyle(SpanStyle(color = terminalLineColor(line, p))) { append(line) }
+            } else {
+                b.withStyle(SpanStyle(color = p.text)) { append(line.substring(0, m.range.first)) }
+                b.withStyle(SpanStyle(color = lossColor(m.groupValues[1].toDoubleOrNull(), p))) {
+                    append(m.value)
+                }
+                b.withStyle(SpanStyle(color = p.text)) { append(line.substring(m.range.last + 1)) }
+            }
+        }
+        // rtt/round-trip summary: label blue like a header, min/avg/max values
+        // bucketed like reply times (mdev tail plain) — same visual language.
+        t.startsWith("rtt ") || t.startsWith("round-trip ") -> {
+            val eq = line.indexOf('=')
+            if (eq < 0) {
+                b.withStyle(SpanStyle(color = p.blue)) { append(line) }
+            } else {
+                b.withStyle(SpanStyle(color = p.blue)) { append(line.substring(0, eq)) }
+                val rest = line.substring(eq)
+                var nlast = 0
+                var n = 0
+                for (nm in numTok.findAll(rest)) {
+                    b.withStyle(SpanStyle(color = p.text)) { append(rest.substring(nlast, nm.range.first)) }
+                    val c = if (n < 3) latencyColor(nm.value.toDoubleOrNull(), p) else p.text
+                    b.withStyle(SpanStyle(color = c)) { append(nm.value) }
+                    nlast = nm.range.last + 1
+                    n++
+                }
+                b.withStyle(SpanStyle(color = p.text)) { append(rest.substring(nlast)) }
+            }
+        }
         !isVerdict && kv != null && kv.groupValues[3].isNotEmpty() &&
             !t.startsWith(";;") && !t.startsWith("==") -> {
             val value = kv.groupValues[3]
@@ -445,6 +515,62 @@ private fun appendStyled(
             b.withStyle(SpanStyle(color = p.blue)) { append(line) }
         else -> b.withStyle(SpanStyle(color = terminalLineColor(line, p))) { append(line) }
     }
+}
+
+/**
+ * One ping reply or Globalping stats line, colored per part, same rule on
+ * both: blue = the line's identity (Globalping probe label, or on a local
+ * reply the responder address after "bytes from "), white = structure
+ * (prefix, field labels, separators), color = only values carrying a
+ * verdict — RTT fields take the latency bucket (green/amber/red), loss
+ * takes the loss bucket, seq/ttl stay plain. The lone colored number is
+ * what pops when scanning the log.
+ */
+private fun appendPingParts(b: AnnotatedString.Builder, line: String, p: TerminalPalette) {
+    // kv head ("probe label:") renders blue like any other key. Its end offset
+    // (leading ws + key + colon); -1 when the line has no key prefix.
+    val kv = kvPattern.find(line)
+    val headEnd = if (kv != null) kv.groupValues[1].length + kv.groupValues[2].length + 1 else -1
+    var last = 0
+    for (m in pingPart.findAll(line)) {
+        if (m.range.first > last) {
+            // Blue = the line's identity: kv key (Globalping probe label) or,
+            // on a local reply, the responder address after "bytes from ".
+            // The separator colon and everything else stay plain white.
+            val bf = if (last == 0 && headEnd !in 0 until m.range.first) line.indexOf("bytes from ") else -1
+            if (last == 0 && headEnd in 0 until m.range.first) {
+                b.withStyle(SpanStyle(color = p.blue)) { append(line.substring(0, headEnd)) }
+                b.withStyle(SpanStyle(color = p.text)) { append(line.substring(headEnd, m.range.first)) }
+            } else if (bf >= 0) {
+                val addrStart = bf + "bytes from ".length
+                val colon = line.lastIndexOf(':', m.range.first)
+                val addrEnd = if (colon >= addrStart &&
+                    line.substring(colon + 1, m.range.first).isBlank()
+                ) colon else m.range.first
+                b.withStyle(SpanStyle(color = p.text)) { append(line.substring(0, addrStart)) }
+                if (addrEnd > addrStart) {
+                    b.withStyle(SpanStyle(color = p.blue)) { append(line.substring(addrStart, addrEnd)) }
+                }
+                if (m.range.first > addrEnd) {
+                    b.withStyle(SpanStyle(color = p.text)) { append(line.substring(addrEnd, m.range.first)) }
+                }
+            } else {
+                b.withStyle(SpanStyle(color = p.text)) { append(line.substring(last, m.range.first)) }
+            }
+        }
+        val label = m.groupValues[1]
+        val value = m.groupValues[3]
+        b.withStyle(SpanStyle(color = p.text)) { append(label) }
+        b.withStyle(SpanStyle(color = p.text)) { append(m.groupValues[2]) }
+        val vc = when (label) {
+            "loss" -> lossColor(value.removeSuffix("%").toDoubleOrNull(), p)
+            "icmp_seq", "seq", "ttl" -> p.text
+            else -> latencyColor(value.removeSuffix("ms").toDoubleOrNull(), p)
+        }
+        b.withStyle(SpanStyle(color = vc)) { append(value) }
+        last = m.range.last + 1
+    }
+    if (last < line.length) b.withStyle(SpanStyle(color = p.text)) { append(line.substring(last)) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
