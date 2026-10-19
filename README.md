@@ -46,7 +46,7 @@ See [docs/TOOLS.md](docs/TOOLS.md) for honest backend notes and
 
 ## Stack (all latest stable, verified Sep 2026)
 
-- Gradle 9.7.1, AGP 9.4.0 (built-in Kotlin), Kotlin (KGP) 2.4.20
+- Gradle 9.8.1, AGP 9.4.1 (built-in Kotlin), Kotlin (KGP) 2.4.21
 - Jetpack Compose BOM 2026.09.00, Material3, activity-compose 1.13.0
 - Java 17 toolchain, compileSdk 37, targetSdk 36, minSdk 26
 - OkHttp 5.5.0, dnsjava 3.6.5, DataStore 1.2.1, coroutines 1.11.0,

@@ -10,8 +10,8 @@
 
 ## Gradle without re-downloading
 
-The wrapper pins Gradle 9.7.1. If the distribution already sits in
-`~/.gradle/wrapper/dists/gradle-9.7.1-bin`, `./gradlew` reuses it —
+The wrapper pins Gradle 9.8.1. If the distribution already sits in
+`~/.gradle/wrapper/dists/gradle-9.8.1-bin`, `./gradlew` reuses it —
 nothing is downloaded again.
 
 ```bash
@@ -27,7 +27,7 @@ fails the build. This project therefore:
 
 - applies only `com.android.application`, `org.jetbrains.kotlin.plugin.compose`,
   `org.jetbrains.kotlin.plugin.serialization`;
-- pins the compiler via `buildscript { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20") }`;
+- pins the compiler via `buildscript { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21") }`;
 - configures `kotlin { compilerOptions { jvmTarget = 17 } }` (provided by AGP).
 
 Needs: Gradle ≥ 9.6.0, JDK 17, build-tools 36.0.0 (all satisfied here).

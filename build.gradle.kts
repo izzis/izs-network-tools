@@ -1,7 +1,7 @@
 buildscript {
     dependencies {
         // KGP version used by AGP 9.x built-in Kotlin (overrides AGP default)
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21")
     }
 }
 
