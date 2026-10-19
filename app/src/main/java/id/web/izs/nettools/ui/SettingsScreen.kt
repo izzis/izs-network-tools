@@ -1,5 +1,6 @@
 package id.web.izs.nettools.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -291,6 +292,24 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
         dirty = true
     }
 
+    // Persist pending edits immediately. Every exit path needs this: the 600 ms
+    // debounce above runs in LaunchedEffect(s), which is cancelled the moment
+    // this screen leaves composition — a toggle flipped just before leaving
+    // would otherwise never be written.
+    fun flush() {
+        scope.launch { repo.saveSettings(s) }
+        focusManager.clearFocus()
+    }
+
+    // Back gesture / system nav button: MainActivity's BackHandler pops the
+    // stack directly and skips the top-left arrow's flush, so mirror it here.
+    // This deeper BackHandler is registered later and wins while Settings is
+    // on top; MainActivity's takes over again after we leave.
+    BackHandler {
+        flush()
+        onBack()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -298,9 +317,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = {
-                        // Flush any pending edit immediately on back.
-                        scope.launch { repo.saveSettings(s) }
-                        focusManager.clearFocus()
+                        flush()
                         onBack()
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
@@ -308,8 +325,7 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                 },
                 actions = {
                     IconButton(onClick = {
-                        scope.launch { repo.saveSettings(s) }
-                        focusManager.clearFocus()
+                        flush()
                         onOpenAbout()
                     }) {
                         Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.about))
@@ -355,11 +371,14 @@ fun SettingsScreen(vm: NetToolsViewModel, onBack: () -> Unit, onOpenColors: () -
                         0 -> ServersTab(s, ::update)
                         1 -> ScanTab(s, ::update)
                         2 -> ToolsTab(s, ::update)
-                        else -> GeneralTab(s, ::update, onOpenColors, onOpenEditUi = {
+                        else -> GeneralTab(s, ::update, onOpenColors = {
+                            // Same pending-edit flush as the other exit paths.
+                            flush()
+                            onOpenColors()
+                        }, onOpenEditUi = {
                             // Flush pending edits before leaving: the debounced
                             // save dies with this composition.
-                            scope.launch { repo.saveSettings(s) }
-                            focusManager.clearFocus()
+                            flush()
                             onOpenEditUi()
                         })
                     }
