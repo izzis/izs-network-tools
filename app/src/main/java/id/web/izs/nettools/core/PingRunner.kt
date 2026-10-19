@@ -1,6 +1,8 @@
 package id.web.izs.nettools.core
 
 import android.os.SystemClock
+import android.system.Os
+import android.system.OsConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -10,6 +12,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -29,6 +32,87 @@ private val pingTransmitted = Regex("""(\d+) packets transmitted""")
 object PingRunner {
     /** Cap on the pre-spawn target resolve; on expiry ping resolves itself. */
     private const val TARGET_RESOLVE_MS = 1500L
+
+    /** The ping process of the run currently streaming, for [requestStop].
+     *  Volatile: written by the collector thread, read from the UI thread. */
+    @Volatile
+    private var currentProc: Process? = null
+
+    /** Pid of [proc], or -1 when nothing can establish it. [Process.pid()] is
+     *  never called directly: the platform stub this project compiles against
+     *  (SDK "37.0" — a stale jar, its metadata is wrong too) lacks the method,
+     *  and minSdk 26 runtimes may genuinely not have it — a direct call would
+     *  not compile, or would crash on old devices. Even reflective lookup is
+     *  refused on the API 36 test device (NoSuchMethodException: the
+     *  hidden-API policy hides the newer method), so fall back to scanning
+     *  /proc: a ping is the app's only subprocess while it runs, so its
+     *  /proc/<pid>/stat names this process as parent and its cmdline names
+     *  the binary. */
+    private fun pidOf(proc: Process): Long {
+        try {
+            return Process::class.java.getMethod("pid").invoke(proc) as Long
+        } catch (_: Exception) {
+        }
+        return try {
+            val me = android.os.Process.myPid().toString()
+            val bin = ExecUtil.pingBin()
+            val ws = Regex("""\s+""")
+            var parentOnly = -1L
+            for (d in File("/proc").listFiles().orEmpty()) {
+                if (d.name.toIntOrNull() == null) continue
+                val stat = try {
+                    File(d, "stat").readText()
+                } catch (_: Exception) {
+                    continue
+                }
+                // stat = "pid (comm) state ppid ...": everything after the last
+                // ')' starts with the state token, so ppid is the next one.
+                val ppid = stat.substringAfterLast(')', "").trim().split(ws).getOrNull(1)
+                if (ppid != me) continue
+                val cmd = try {
+                    File(d, "cmdline").readText().replace(0.toChar(), ' ')
+                } catch (_: Exception) {
+                    ""
+                }
+                if (cmd.contains(bin)) return d.name.toLong()
+                if (parentOnly < 0) parentOnly = d.name.toLong()
+            }
+            parentOnly
+        } catch (_: Exception) {
+            -1L
+        }
+    }
+
+    /** Stop a running ping the way Ctrl+C does on a terminal: SIGINT makes the
+     *  binary print its statistics block and exit, so the reader still streams
+     *  the summary (plus any timeout marks flushed from it) before EOF closes
+     *  the flow — killing it outright would end the run with no summary, and
+     *  nonstop mode has no other way to ever print one. A janitor thread
+     *  destroys a ping that ignores the interrupt, so stop can never leave a
+     *  runaway process. Returns false when there is nothing running to ask. */
+    fun requestStop(): Boolean {
+        val proc = currentProc ?: return false
+        val pid = pidOf(proc)
+        if (pid <= 0L) return false
+        return try {
+            Os.kill(pid.toInt(), OsConstants.SIGINT)
+            val janitor = Thread {
+                try {
+                    Thread.sleep(750)
+                    if (proc.isAlive) proc.destroy()
+                    Thread.sleep(750)
+                    if (proc.isAlive) proc.destroyForcibly()
+                } catch (_: Exception) {
+                }
+            }
+            janitor.isDaemon = true
+            janitor.start()
+            true
+        } catch (_: Exception) {
+            // No such process: it just exited on its own — the caller cancels.
+            false
+        }
+    }
 
     // -W matches the 1s send interval: per-seq RTO markers then land ~0.3s
     // apart in send rhythm (near-ordered). Larger -W would delay marks and
@@ -58,6 +142,7 @@ object PingRunner {
             close()
             return@callbackFlow
         }
+        currentProc = proc
         val deadlineMs = timeoutSec * 1000L + 300L
         // Monotonic clock: a wall-clock step (NTP sync mid-run) would move
         // every per-seq deadline — same rationale as NetDevWatcher.
@@ -151,6 +236,7 @@ object PingRunner {
         awaitClose {
             finished.set(true)
             monitor.cancel()
+            if (currentProc === proc) currentProc = null
             try {
                 proc.destroy()
             } catch (_: Exception) {

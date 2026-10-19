@@ -623,8 +623,17 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun stop() {
-        job?.cancel()
-        job = null
+        // Local ping stops like Ctrl+C on a terminal: SIGINT the binary instead
+        // of cancelling the collection, so it prints its statistics block (and
+        // the reader streams it — incl. the timeout marks flushed from it)
+        // before EOF ends the flow. This is the only way a stopped nonstop run
+        // ever gets a summary. requestStop() answers false when there is no
+        // local ping process (other tools, global ping, already-finished run),
+        // and then everything cancels outright as before.
+        if (!PingRunner.requestStop()) {
+            job?.cancel()
+            job = null
+        }
         _state.update { it.copy(running = false, progress = null, lastRefreshAt = 0L, wifiScanning = false, dropExpanded = false) }
     }
 
