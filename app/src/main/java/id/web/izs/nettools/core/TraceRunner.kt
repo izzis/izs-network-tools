@@ -166,7 +166,14 @@ object TraceRunner {
         }
         val destIp = resolveIp(host)
         // Single blue summary line: backend, destination, and the '*' legend.
-        emit("traceroute to $host [TTL-ping: no binary, dest ${destIp ?: "unresolved"}, silent hops show *]")
+        // The parenthesized dest mirrors traceroute's own
+        // `traceroute to host (1.2.3.4), …` header — the UI keeps intro lines
+        // only when they carry that resolved IP, which is what a timeout-heavy
+        // trace needs to still show where it was aiming.
+        emit(
+            "traceroute to $host (${destIp ?: "unresolved"}) " +
+                "[TTL-ping: no binary, silent hops show *]"
+        )
         var prevIp: String? = null
         var resolved = 0
         for (ttl in 1..maxHops) {

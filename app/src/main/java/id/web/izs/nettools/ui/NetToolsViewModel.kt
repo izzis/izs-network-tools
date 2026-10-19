@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,12 +106,27 @@ data class HomeUiState(
     val hideToolGrid: Boolean = false
 )
 
+/** Upper bound on the local resolve that gives a deferred Ping/Trace header its
+ *  destination IP (see NetToolsViewModel.run). Needed because ping's own banner
+ *  — `PING host (1.2.3.4) 56(84) bytes of data.` — only reaches us when the
+ *  process ends if it gets no reply (stdout to a pipe stays block-buffered
+ *  until exit on this device), i.e. exactly in the timeout case the IP is
+ *  wanted. Normally this resolves within a few hundred ms, well before the
+ *  first timeout mark at ~1.3s. */
+private const val HEADER_RESOLVE_MS = 1500L
+
 class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = SettingsRepository(app)
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
     private var job: Job? = null
+
+    /** Plain header text of a deferred run (local Ping/Trace, see run()) while its
+     *  local resolve is still out; null once published (or when the run keeps an
+     *  instant header). Also the run-identity guard: only the run that still owns
+     *  this exact text may publish. Main-thread only. */
+    private var pendingHeader: String? = null
 
     /** Session mirror of the host-tool target bar (DataStore `last_target`). */
     private var hostTarget: String = ""
@@ -686,9 +702,23 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.MYIP -> "this device"
             else -> parsed.host.ifEmpty { "this device" } + portSuffix
         }
-        val header = "== ${st.tool.title} $headerTarget [via $backend] " +
+        val headerPrefix = "== ${st.tool.title} $headerTarget "
+        val headerSuffix = "[via $backend] " +
             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date()) + " =="
-        _state.update { it.copy(lines = ((if (s.autoClearOutput) emptyList() else it.lines) + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) 0L else it.lastRefreshAt, wifiScanning = st.tool == Tool.WIFIANALYZER, wifiCycles = 0, wifiConnBssid = "", dropExpanded = false) }
+        val header = headerPrefix + headerSuffix
+        // Local Ping/Trace publish their header from a resolve of their own rather
+        // than up front: the destination IP belongs in that very line, and ping's
+        // banner cannot be trusted to deliver it (block-buffered until exit when
+        // the target does not reply — see HEADER_RESOLVE_MS). The header is
+        // written exactly once, with the IP already inside; intro lines only ever
+        // upgrade a header that had to go out plain. Every other tool (and
+        // Globalping runs) keeps the instant header.
+        val deferHeader = (st.tool == Tool.PING || st.tool == Tool.TRACE) && !isGlobalRun(st)
+        pendingHeader = if (deferHeader) header else null
+        _state.update { cur ->
+            val base = if (s.autoClearOutput) emptyList() else cur.lines
+            cur.copy(lines = (if (deferHeader) base else base + header).takeLast(2000), loopVerdict = null, stormVerdict = null, running = true, progress = "Starting...", startedAt = System.currentTimeMillis(), lastRefreshAt = if (st.tool == Tool.WIFIANALYZER) 0L else cur.lastRefreshAt, wifiScanning = st.tool == Tool.WIFIANALYZER, wifiCycles = 0, wifiConnBssid = "", dropExpanded = false)
+        }
         if (st.tool != Tool.SWEEP && st.tool != Tool.WIFIANALYZER && parsed.host.isNotEmpty()) viewModelScope.launch { repo.pushRecent(parsed.host, _state.value.settings.maxRecent) }
         // Remember the used target for the next startup. My IP ignores the
         // target bar, so it never overwrites; empty sweep keeps the old one;
@@ -727,9 +757,44 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
                 onConnected = { bssid -> _state.update { it.copy(wifiConnBssid = bssid) } }
             )
         }
+        // The deferred header is published from one local resolve of our own, NOT
+        // from ping's banner: that banner only reaches us when the process ends if
+        // the target never replies (see HEADER_RESOLVE_MS) — exactly the timeout
+        // case this feature exists for. One lookup, one publication; intro lines
+        // can no longer rewrite the header after that.
+        if (deferHeader) viewModelScope.launch {
+            val ip = withTimeoutOrNull(HEADER_RESOLVE_MS) { TraceRunner.resolveIp(parsed.host) }
+            // Linux-style `(1.2.3.4)` after the target — unless the target IS the
+            // IP, where repeating it would just be noise.
+            val shown = if (ip != null && !ip.equals(parsed.host, ignoreCase = true)) {
+                headerPrefix + "($ip) " + headerSuffix
+            } else {
+                header
+            }
+            val pending = pendingHeader == header
+            if (pending || _state.value.lines.any { it == header }) publishHeader(header, shown, pending)
+        }
         job = viewModelScope.launch {
             flow.catch { e -> _state.update { it.copy(lines = it.lines + "ERROR: ${e.message}") } }
                 .collect { line ->
+                    if (deferHeader) {
+                        // Intro lines never get a row of their own — the header above
+                        // already names the target and carries the IP from the local
+                        // resolve. An intro may still UPGRADE a header that went out
+                        // plain (the resolver lost the race or failed), but only in
+                        // place: never a second row for one run.
+                        if (line.startsWith("PING ") || line.startsWith("traceroute to ")) {
+                            val folded = TargetParser.withResolvedIp(header, headerPrefix, line, parsed.host)
+                            val pending = pendingHeader == header
+                            if (folded != null && (pending || _state.value.lines.any { it == header })) {
+                                publishHeader(header, folded, pending)
+                            }
+                            return@collect
+                        }
+                        // Not an intro while the resolver is still out: never leave
+                        // the output headerless (it is bounded by HEADER_RESOLVE_MS).
+                        if (pendingHeader == header) publishHeader(header, header, true)
+                    }
                     if (isEchoLine(st.tool, st, line)) return@collect
                     // Loop verdict lines feed the banners above the console.
                     val loopVerdict = if (st.tool == Tool.LOOP) LoopDetector.verdictOfLine(line) else null
@@ -784,12 +849,12 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Runner intro lines that only repeat what the blue "== ... ==" header
      *  already says (tool + target + backend). Dropped so each run opens with
-     *  a single header line. Lines carrying unique info (resolved IPs, counts,
-     *  warnings, errors) never match and are kept. */
+     *  a single header line — the destination-IP intros are folded into that
+     *  header before this check (see the collect block). Warnings and errors
+     *  never match and are kept. */
     private fun isEchoLine(tool: Tool, st: HomeUiState, line: String): Boolean {
         if (line.startsWith(GlobalpingRunner.LIVE) || line.startsWith(GlobalpingRunner.REMOVE)) return false
-        if ((tool == Tool.PING && st.pingGlobal) || (tool == Tool.TRACE && st.traceGlobal))
-            return line.startsWith(";; global ")
+        if (isGlobalRun(st)) return line.startsWith(";; global ")
         return when (tool) {
             Tool.PING -> line.startsWith("PING ")
             Tool.DIG -> line.startsWith("; DiG via ")
@@ -809,6 +874,27 @@ class NetToolsViewModel(app: Application) : AndroidViewModel(app) {
             Tool.WIFIANALYZER -> line.startsWith(";; refresh every")
         }
     }
+
+    /** Publish the deferred header: [appendable] while nothing is up yet, upgrade
+     *  an already-shown plain header when the IP turns up later — never a second
+     *  row for one run. */
+    private fun publishHeader(plain: String, shown: String, appendable: Boolean) {
+        pendingHeader = null
+        _state.update { cur ->
+            val idx = cur.lines.indexOfLast { it == plain }
+            val next = when {
+                idx >= 0 -> cur.lines.toMutableList().also { it[idx] = shown }
+                shown in cur.lines -> cur.lines
+                appendable -> cur.lines + shown
+                else -> cur.lines
+            }
+            cur.copy(lines = next.takeLast(2000))
+        }
+    }
+
+    /** Globalping runs list `;; global …` intros instead of local echo lines. */
+    private fun isGlobalRun(st: HomeUiState): Boolean =
+        (st.tool == Tool.PING && st.pingGlobal) || (st.tool == Tool.TRACE && st.traceGlobal)
 
     private fun globalWhere(st: HomeUiState): String =
         if (st.globalCountry.isEmpty()) " worldwide" else " ${st.globalCountry}"

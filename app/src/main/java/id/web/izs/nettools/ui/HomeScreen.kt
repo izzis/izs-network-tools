@@ -191,7 +191,8 @@ private fun terminalLineColor(line: String, p: TerminalPalette): Color {
     if (t.startsWith("ERROR") || t.contains("failed", ignoreCase = true)) return p.red
     // Headers / summaries / comments.
     if (t.startsWith("==") || t.startsWith("---") || t.startsWith("Final URL") ||
-        t.startsWith("Done") || t.startsWith("rtt ") || t.startsWith("PING ")
+        t.startsWith("Done") || t.startsWith("rtt ") || t.startsWith("PING ") ||
+        t.startsWith("traceroute to ")
     ) return p.blue
     if (t.startsWith(";;")) return p.dim
     // Success markers.

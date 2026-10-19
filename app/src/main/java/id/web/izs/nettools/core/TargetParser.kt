@@ -37,4 +37,35 @@ object TargetParser {
     fun isIp(s: String): Boolean {
         return s.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")) || s.contains(':')
     }
+
+    private val parenGroup = Regex("""\(([^)]+)\)""")
+
+    /**
+     * The resolved destination inside a Linux-style intro line —
+     * `PING host (1.2.3.4) 56(84) bytes of data.`,
+     * `traceroute to host (1.2.3.4), 30 hops max, 60 byte packets`,
+     * TraceRunner's TTL-ping variant — or null when the line carries no such
+     * address (binary-path intro, `(unresolved)`), or when it only repeats the
+     * target itself (pinging a literal IP: `(8.8.8.8)` adds nothing).
+     */
+    fun resolvedIpIn(line: String, host: String): String? {
+        val paren = parenGroup.find(line)?.groupValues?.get(1)?.trim() ?: return null
+        if (!isIp(paren)) return null
+        val ip = paren.trim('[', ']')
+        return if (ip.equals(host.trim('[', ']'), ignoreCase = true)) null else ip
+    }
+
+    /**
+     * [header] with the resolved destination inserted after its target —
+     * `== PING google.com [via …] ==` becomes `== PING google.com (1.2.3.4) [via …] ==`
+     * — or null when [line] carries nothing to fold ([resolvedIpIn]) or does not
+     * match the [headerPrefix] built for this run. Callers drop [line] on success,
+     * so the run keeps exactly ONE intro line, now showing where packets go even
+     * if every probe times out.
+     */
+    fun withResolvedIp(header: String, headerPrefix: String, line: String, host: String): String? {
+        val ip = resolvedIpIn(line, host) ?: return null
+        if (!header.startsWith(headerPrefix)) return null
+        return header.replaceRange(headerPrefix.length, headerPrefix.length, "($ip) ")
+    }
 }
