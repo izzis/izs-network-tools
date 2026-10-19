@@ -39,8 +39,11 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -1014,11 +1017,21 @@ fun HomeScreen(
             // when switching back to a tool that needs it).
             // label (not placeholder): floats onto the border when focused or
             // filled, same as Settings fields; height pinned so the min-height
-            // never grows past the compact look.
+            // never grows past the compact look. Uses M3's TextFieldState
+            // overload: its layout reserves only half the label line above the
+            // text, so descenders (g/q/y) fit inside the pinned height. The
+            // ViewModel stays the source of truth: typing forwards into it,
+            // programmatic edits (pick/clear/tool switch) flow back below.
             val targetHidden = state.tool == Tool.MYIP || state.tool == Tool.NEIGHBOR
+            val targetField = remember { TextFieldState(if (targetHidden) "" else state.target) }
+            LaunchedEffect(state.target, targetHidden) {
+                val wanted = if (targetHidden) "" else state.target
+                if (targetField.text.toString() != wanted) {
+                    targetField.edit { replace(0, originalText.length, wanted) }
+                }
+            }
             OutlinedTextField(
-                value = if (targetHidden) "" else state.target,
-                onValueChange = { if (!targetHidden) vm.setTarget(it) },
+                state = targetField,
                 readOnly = targetHidden,
                 label = {
                     Text(
@@ -1041,7 +1054,10 @@ fun HomeScreen(
                         )
                     )
                 },
-                singleLine = true,
+                lineLimits = TextFieldLineLimits.SingleLine,
+                inputTransformation = InputTransformation {
+                    if (!targetHidden) vm.setTarget(toString())
+                },
                 leadingIcon = {
                     if (state.target.isEmpty() || targetHidden) {
                         Icon(Icons.Filled.Search, contentDescription = null)
@@ -1058,7 +1074,7 @@ fun HomeScreen(
                         Icon(Icons.Filled.ArrowDropDown, contentDescription = stringResource(R.string.home_saved_list))
                     }
                 },
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -1067,10 +1083,13 @@ fun HomeScreen(
                     keyboardType = KeyboardType.Uri,
                     imeAction = ImeAction.Go
                 ),
-                keyboardActions = KeyboardActions(onGo = {
+                onKeyboardAction = KeyboardActionHandler {
                     focusManager.clearFocus()
                     runAction()
-                }),
+                },
+                // Labelled padding: 8dp vertical keeps the compact look while
+                // leaving the text row room for descenders.
+                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
                 // Pin the height: M3's default min-height for a label field is
                 // taller than this bar used to be — don't let it creep back.
                 modifier = Modifier.fillMaxWidth().height(56.dp)
@@ -1460,7 +1479,7 @@ fun HomeScreen(
             // --- Output console: dark terminal panel ---
             Card(
                 colors = CardDefaults.cardColors(containerColor = term.bg),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(8.dp),
                 modifier = mod
             ) {
                     Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
